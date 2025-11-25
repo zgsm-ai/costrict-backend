@@ -1,0 +1,2 @@
+FROM zgsm-ai/cotun
+ENTRYPOINT ["/app/bin", "server", "--port", "443", "--tls-domain", "cotun.jpillora.com"]
