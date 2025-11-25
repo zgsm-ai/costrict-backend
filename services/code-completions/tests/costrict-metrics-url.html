@@ -1,0 +1,76 @@
+<html>
+    <head>
+        <title>监控指标链接</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin-top: 20px;
+            }
+            th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }
+            th {
+                background-color: #f2f2f2;
+                font-weight: bold;
+            }
+            tr:hover {
+                background-color: #f5f5f5;
+            }
+            h1 {
+                color: #333;
+            }
+            .url-cell {
+                word-break: break-all;
+                max-width: 500px;
+            }
+            .url-link {
+                color: #0066cc;
+                text-decoration: none;
+            }
+            .url-link:hover {
+                text-decoration: underline;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>监控指标链接</h1>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>监控类型</th>
+                    <th>链接地址</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>代码补全模型指标监控</td>
+                    <td class="url-cell">
+                        <a href="http://10.72.1.16:30902/grafana/d/sglang-dashboard/llm-metrics-dashboard?orgId=1&refresh=5s&var-namespace=All&var-model_name=DeepSeek-Coder-V2-Lite-Base-Costrict&var-job=All&var-instance=All&var-TaskName=All&var-TaskUUID=All&var-datasource=prometheus&from=now-5m&to=now" class="url-link" target="_blank">
+                            http://10.72.1.16:30902/grafana/d/sglang-dashboard/llm-metrics-dashboard?orgId=1&refresh=5s&var-namespace=All&var-model_name=DeepSeek-Coder-V2-Lite-Base-Costrict&var-job=All&var-instance=All&var-TaskName=All&var-TaskUUID=All&var-datasource=prometheus&from=now-5m&to=now
+                        </a>
+                    </td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td>代码补全服务指标监控</td>
+                    <td class="url-cell">
+                        <a href="http://10.72.6.115:30030/d/1cef74f9-e458-4b58-b0b8-1ee82a38ea85/code-completions?orgId=1&from=now-1h&to=now&timezone=browser" class="url-link" target="_blank">
+                            http://10.72.6.115:30030/d/1cef74f9-e458-4b58-b0b8-1ee82a38ea85/code-completions?orgId=1&from=now-1h&to=now&timezone=browser
+                        </a>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </body>
+</html>
+
