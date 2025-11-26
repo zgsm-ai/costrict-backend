@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Issue Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .required {
+            color: red;
+        }
+        select, input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 120px; /* Height for 5 lines */
+            resize: none; /* Disable resizing */
+        }
+        .button-container {
+            text-align: center;
+        }
+        button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Issue Report</h1>
+    <form id="issueForm">
+        <div class="form-group">
+            <label for="issueCategory">Issue Category <span class="required">*</span></label>
+            <select id="issueCategory" required>
+                <option value="">Please select an issue category</option>
+                <option value="Not Sure">Not Sure</option>
+                <option value="Performance Issue">Performance Issue</option>
+                <option value="Service Error">Service Error</option>
+                <option value="Plugin Crash">Plugin Crash</option>
+                <option value="Poor Chat/Completion Quality">Poor Chat/Completion Quality</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="issueDescription">Issue Description <span class="required">*</span></label>
+            <textarea id="issueDescription" placeholder="Enter your issue here, please describe the operation steps and error symptoms in as much detail as possible..." required></textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="screenshot">Upload Screenshot (Optional)</label>
+            <input type="file" id="screenshot" accept="image/*">
+        </div>
+
+        <div class="form-group">
+            <label for="contactNumber">Contact Phone (Optional)</label>
+            <input type="text" id="contactNumber" placeholder="Please enter your contact phone number">
+        </div>
+
+        <div class="button-container">
+            <button type="submit">Submit</button>
+        </div>
+    </form>
+</div>
+
+<script>
+    function submitIssue(fname, base64String) {
+        const formData = {
+            category: document.getElementById('issueCategory').value,
+            description: document.getElementById('issueDescription').value,
+            number: document.getElementById('contactNumber').value,
+            screenshot_data: base64String,
+            screenshot_name: fname
+        };
+        fetch('/api/feedbacks/issue', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json' // Set request header as JSON
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => {
+            console.info("formData:", JSON.stringify(formData));
+            if (response.ok) {
+                alert('Issue report submitted!');
+                // this.reset(); // Reset form after submission
+            } else {
+                alert('Submission failed, please try again later.');
+            }
+        })
+        .catch(error => {
+            console.error('Submission error:', error);
+            alert('Submission failed, please try again later.');
+        });
+    }
+    document.getElementById('issueForm').addEventListener('submit', function(event) {
+        event.preventDefault(); // Prevent default submission
+
+        const fileInput = document.getElementById('screenshot');
+        const file = fileInput.files[0];
+        if (!file) {
+            submitIssue("", "");
+            return;
+        }
+        const reader = new FileReader();
+        // Triggered when file reading is complete
+        reader.onload = function(event) {
+            submitIssue(file.name, event.target.result); // Remove prefix part
+        }
+        reader.readAsDataURL(file);
+    });
+</script>
+
+</body>
+</html>
