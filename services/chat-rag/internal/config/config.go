@@ -24,7 +24,7 @@ const (
 // LLMConfig
 type LLMConfig struct {
 	Endpoint            string
-	ApiKey              string   `mapstructure:"apiKey" yaml:"apiKey"`
+	ApiKey              string `mapstructure:"apiKey" yaml:"apiKey"`
 	FuncCallingModels   []string
 	ChunkMetricsEnabled bool
 }
@@ -100,8 +100,12 @@ type LogS3Config struct {
 type LogConfig struct {
 	LogFilePath string
 	// StorageType controls where logs are persisted: "disk" (default) or "s3"
-	StorageType string     `mapstructure:"storageType" yaml:"storageType"`
+	StorageType string      `mapstructure:"storageType" yaml:"storageType"`
 	S3          LogS3Config `mapstructure:"s3" yaml:"s3"`
+	// SaveErrorLog controls whether logs with errors should be saved to permanent storage.
+	// When false, logs containing Error entries will be skipped for storage (metrics are still reported).
+	// When true (default), all logs are saved regardless of error presence.
+	SaveErrorLog bool `mapstructure:"saveErrorLog" yaml:"saveErrorLog"`
 	// LogScanIntervalSec   int
 	// ClassifyModel        string
 	// EnableClassification bool

@@ -77,6 +77,8 @@ type LoggerRecordService struct {
 	deptClient     client.DepartmentInterface
 	instanceID     string
 	// enableClassification bool
+	// saveErrorLog controls whether logs with errors are saved to permanent storage
+	saveErrorLog bool
 
 	logChan         chan *model.ChatLog
 	stopChan        chan struct{}
@@ -116,6 +118,7 @@ func NewLogRecordService(config config.Config) LogRecordInterface {
 		// enableClassification: config.Log.EnableClassification,
 
 		logFilePath:     config.Log.LogFilePath, // Permanent storage directory
+		saveErrorLog:    config.Log.SaveErrorLog,
 		logChan:         make(chan *model.ChatLog, 1000),
 		stopChan:        make(chan struct{}),
 		instanceID:      instanceID,
@@ -323,9 +326,18 @@ func (ls *LoggerRecordService) logDirectToStorage(logs *model.ChatLog) {
 	// Get department info
 	ls.getDepartment(logs)
 
-	// Record metrics if available
+	// Record metrics if available (always report, even for error logs)
 	if ls.metricsService != nil {
 		ls.metricsService.RecordChatLog(logs)
+	}
+
+	// If the log contains errors and saveErrorLog is false, skip saving to permanent storage
+	if len(logs.Error) > 0 && !ls.saveErrorLog {
+		logger.Info("Skipping log save.",
+			zap.String("request_id", logs.Identity.RequestID),
+			zap.Int("error_count", len(logs.Error)),
+		)
+		return
 	}
 
 	// Save directly to permanent storage
@@ -620,7 +632,7 @@ func (ls *LoggerRecordService) saveLogToPermanentStorage(chatLog *model.ChatLog)
 			)
 			return
 		}
-		writeInfo = &storage.WriteInfo{FilePath: storageKey} 
+		writeInfo = &storage.WriteInfo{FilePath: storageKey}
 		logger.Info("Log saved in storage", zap.String("fileName", logFile))
 	}
 

@@ -7,6 +7,10 @@ Log:
   LogFilePath: "logs/"
   # Storage type: "disk" (default) or "s3"
   storageType: "disk"
+  # Whether to save logs that contain errors to permanent storage.
+  # false: skip saving logs with errors (metrics are still reported).
+  # true (default): save all logs regardless of error presence.
+  saveErrorLog: false
   # S3/MinIO configuration (required when storageType is "s3")
   s3:
     endpoint: "localhost:9000"
