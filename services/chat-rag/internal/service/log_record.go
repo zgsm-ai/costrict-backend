@@ -337,6 +337,17 @@ func (ls *LoggerRecordService) logDirectToStorage(logs *model.ChatLog) {
 			zap.String("request_id", logs.Identity.RequestID),
 			zap.Int("error_count", len(logs.Error)),
 		)
+		// Metrics reporting should still happen even when logs are not saved to storage
+		if ls.metricsReporter != nil {
+			var e string = ""
+			if len(logs.Error) > 0 {
+				for key := range logs.Error[0] {
+					e = string(key)
+					break
+				}
+			}
+			go ls.metricsReporter.ReportMetrics(logs, nil, e) // async report metrics, writeInfo is nil since no storage write occurred
+		}
 		return
 	}
 
