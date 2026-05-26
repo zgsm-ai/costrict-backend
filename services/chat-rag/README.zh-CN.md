@@ -205,16 +205,19 @@ router:
         enabled: true
         priority: 1           # 优先级（数字越小优先级越高，范围 0-999）
         weight: 5             # 权重（同优先级内的负载均衡，范围 1-100）
+        minVipLevel: 1        # AUTO 模式可见所需的最低 VIP 等级；0 表示所有用户可见
 
       - modelName: "claude-3-opus"
         enabled: true
         priority: 1           # 与 gpt-4 同优先级
         weight: 3             # 权重比 gpt-4 低
+        minVipLevel: 0
 
       - modelName: "gpt-3.5-turbo"
         enabled: true
         priority: 2           # 优先级较低，仅在优先级 1 失败时使用
         weight: 10
+        minVipLevel: 0
 
     fallbackModelName: "gpt-3.5-turbo"
 
@@ -265,8 +268,10 @@ router:
     - 简单、低成本的策略，无需语义分析；根据优先级选择模型（数字越小优先级越高，范围 0-999）
     - 使用平滑加权轮询算法在同优先级组内实现负载均衡
     - 配置字段：
-      - `candidates`：候选模型列表，包含 `modelName`、`enabled`、`priority`（0-999）和 `weight`（1-100）
-      - `fallbackModelName`：所有候选模型失败时的回退模型
+      - `candidates`：候选模型列表，包含 `modelName`、`enabled`、`priority`（0-999）、`weight`（1-100）以及可选的 `minVipLevel`（默认 0）
+      - `minVipLevel`：AUTO 模式下可见该候选模型所需的最低 VIP 等级。`0` 或未配置表示所有用户可见。不满足要求的 VIP 模型不会进入 AUTO 首选或降级链路。
+      - `fallbackModelName`：所有候选模型失败时的回退模型。priority AUTO 路由中，fallback 必须存在于 `candidates`（配置加载时强校验，缺失则启动失败）；运行时仅当 fallback 对当前用户可见时才追加到降级链，否则记录 warn 日志并跳过。
+      - **降级顺序契约**：同 `priority` 内按 `weight` 降序排序；`weight` 相同时保持 `candidates` 配置的原始顺序（稳定排序）。
       - 超时和重试配置（与语义路由相同）：
         - `idleTimeoutMs`：单次空闲超时（毫秒），默认 180000ms (180s)
         - `totalIdleTimeoutMs`：总空闲超时预算（毫秒），默认 180000ms (180s)

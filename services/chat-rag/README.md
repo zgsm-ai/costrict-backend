@@ -205,16 +205,19 @@ router:
   #       enabled: true
   #       priority: 1           # Lower number = higher priority (0-999)
   #       weight: 5             # Weight for load balancing within same priority (1-100)
+  #       minVipLevel: 1        # Minimum VIP level required in auto mode; 0 means all users
   #
   #     - modelName: "claude-3-opus"
   #       enabled: true
   #       priority: 1           # Same priority as gpt-4
   #       weight: 3             # Lower weight than gpt-4
+  #       minVipLevel: 0
   #
   #     - modelName: "gpt-3.5-turbo"
   #       enabled: true
   #       priority: 2           # Lower priority, used when priority 1 fails
   #       weight: 10
+  #       minVipLevel: 0
   #
   #   fallbackModelName: "gpt-3.5-turbo"
   #
@@ -265,8 +268,10 @@ router:
     - Simple, cost-effective strategy without semantic analysis; selects models by priority (lower number = higher priority, range 0-999).
     - Uses smooth weighted round-robin algorithm for load balancing within same priority group.
     - Configuration fields:
-      - `candidates`: List of candidate models with `modelName`, `enabled`, `priority` (0-999), and `weight` (1-100).
-      - `fallbackModelName`: Fallback model when all candidates fail.
+      - `candidates`: List of candidate models with `modelName`, `enabled`, `priority` (0-999), `weight` (1-100), and optional `minVipLevel` (default 0).
+      - `minVipLevel`: Minimum VIP level required for AUTO mode to see this candidate. `0` or omitted means visible to all users. VIP-only candidates are also excluded from AUTO degradation for users that do not meet the requirement.
+      - `fallbackModelName`: Fallback model when all candidates fail. For priority AUTO routing, the fallback must be present in `candidates` (enforced at config load — startup fails otherwise). It is appended to the degradation chain only when also visible to the current user; otherwise a warning is logged and it is skipped at runtime.
+      - **Degradation ordering**: within the same `priority`, candidates are ordered by `weight` descending; when weights tie, the original `candidates` configuration order is preserved (stable sort).
       - Timeout and retry settings (same as semantic routing):
         - `idleTimeoutMs`: Single idle timeout (ms). Default 180000ms (180s).
         - `totalIdleTimeoutMs`: Total idle timeout budget (ms). Default 180000ms (180s).

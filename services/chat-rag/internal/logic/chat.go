@@ -173,42 +173,52 @@ func (l *ChatCompletionLogic) logCompletion(chatLog *model.ChatLog) {
 	}
 }
 
-// ChatCompletion handles chat completion requests
-func (l *ChatCompletionLogic) ChatCompletion() (resp *types.ChatCompletionResponse, err error) {
-	// Router: select model before prompt processing & LLM client creation
+func (l *ChatCompletionLogic) resolveAutoRouter() error {
+	if l.svcCtx.Config.Router == nil || !l.svcCtx.Config.Router.Enabled || !strings.EqualFold(l.request.Model, "auto") {
+		return nil
+	}
 	origModel := l.request.Model
-	if l.svcCtx.Config.Router != nil && l.svcCtx.Config.Router.Enabled && strings.EqualFold(l.request.Model, "auto") {
-		logger.InfoC(l.ctx, "semantic router: auto mode routing start",
-			zap.String("strategy", l.svcCtx.Config.Router.Strategy),
-		)
-		// Use cached strategy instance to maintain state across requests (e.g., round-robin weights)
-		if runner := l.getOrCreateRouterStrategy(); runner != nil {
-			selected, current, ordered, rerr := runner.Run(l.ctx, l.svcCtx, l.headers, l.request)
-			if rerr == nil && selected != "" {
-				l.request.Model = selected
-				l.orderedModels = ordered
-				// mark original model via request header for upstream
-				if l.headers != nil && strings.EqualFold(origModel, "auto") {
-					l.headers.Set(types.HeaderOriginalModel, "Auto")
-				}
-				if l.writer != nil {
-					l.writer.Header().Set(types.HeaderSelectLLm, selected)
-					if current != "" {
-						safe := sanitizeHeaderValue(current)
-						if safe != "" {
-							encodedCur := base64.StdEncoding.EncodeToString([]byte(safe))
-							if encodedCur != "" {
-								l.writer.Header().Set(types.HeaderUserInput, encodedCur)
-							}
-						}
+	logger.InfoC(l.ctx, "semantic router: auto mode routing start",
+		zap.String("strategy", l.svcCtx.Config.Router.Strategy),
+	)
+	runner := l.getOrCreateRouterStrategy()
+	if runner == nil {
+		return fmt.Errorf("auto router: strategy %q is unknown or has invalid configuration", l.svcCtx.Config.Router.Strategy)
+	}
+	selected, current, ordered, rerr := runner.Run(l.ctx, l.svcCtx, l.headers, l.request)
+	if rerr != nil {
+		return fmt.Errorf("auto router: %w", rerr)
+	}
+	if selected != "" {
+		l.request.Model = selected
+		l.orderedModels = ordered
+		if l.headers != nil && strings.EqualFold(origModel, "auto") {
+			l.headers.Set(types.HeaderOriginalModel, "Auto")
+		}
+		if l.writer != nil {
+			l.writer.Header().Set(types.HeaderSelectLLm, selected)
+			if current != "" {
+				safe := sanitizeHeaderValue(current)
+				if safe != "" {
+					encodedCur := base64.StdEncoding.EncodeToString([]byte(safe))
+					if encodedCur != "" {
+						l.writer.Header().Set(types.HeaderUserInput, encodedCur)
 					}
 				}
-				logger.InfoC(l.ctx, "semantic router: auto mode routing selected",
-					zap.String("selected_model", selected),
-					zap.Int("user_input_len", len([]byte(current))),
-				)
 			}
 		}
+		logger.InfoC(l.ctx, "semantic router: auto mode routing selected",
+			zap.String("selected_model", selected),
+			zap.Int("user_input_len", len([]byte(current))),
+		)
+	}
+	return nil
+}
+
+// ChatCompletion handles chat completion requests
+func (l *ChatCompletionLogic) ChatCompletion() (resp *types.ChatCompletionResponse, err error) {
+	if err := l.resolveAutoRouter(); err != nil {
+		return nil, err
 	}
 
 	chatLog, processedPrompt, err := l.processRequest()
@@ -296,40 +306,8 @@ func (l *ChatCompletionLogic) getRetryConfig() (maxRetryCount int, retryInterval
 
 // ChatCompletionStream handles streaming chat completion with SSE
 func (l *ChatCompletionLogic) ChatCompletionStream() error {
-	// Router: select model before streaming LLM client creation
-	origModel := l.request.Model
-	if l.svcCtx.Config.Router != nil && l.svcCtx.Config.Router.Enabled && strings.EqualFold(l.request.Model, "auto") {
-		logger.InfoC(l.ctx, "semantic router: auto mode routing start",
-			zap.String("strategy", l.svcCtx.Config.Router.Strategy),
-		)
-		// Use cached strategy instance to maintain state across requests (e.g., round-robin weights)
-		if runner := l.getOrCreateRouterStrategy(); runner != nil {
-			selected, current, ordered, rerr := runner.Run(l.ctx, l.svcCtx, l.headers, l.request)
-			if rerr == nil && selected != "" {
-				l.request.Model = selected
-				l.orderedModels = ordered
-				// mark original model via request header for upstream
-				if l.headers != nil && strings.EqualFold(origModel, "auto") {
-					l.headers.Set(types.HeaderOriginalModel, "Auto")
-				}
-				if l.writer != nil {
-					l.writer.Header().Set(types.HeaderSelectLLm, selected)
-					if current != "" {
-						safe := sanitizeHeaderValue(current)
-						if safe != "" {
-							encodedCur := base64.StdEncoding.EncodeToString([]byte(safe))
-							if encodedCur != "" {
-								l.writer.Header().Set(types.HeaderUserInput, encodedCur)
-							}
-						}
-					}
-				}
-				logger.InfoC(l.ctx, "semantic router: auto mode routing selected",
-					zap.String("selected_model", selected),
-					zap.Int("user_input_len", len([]byte(current))),
-				)
-			}
-		}
+	if err := l.resolveAutoRouter(); err != nil {
+		return err
 	}
 
 	chatLog, processedPrompt, err := l.processRequest()

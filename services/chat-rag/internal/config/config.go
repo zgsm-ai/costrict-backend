@@ -327,10 +327,11 @@ type PriorityConfig struct {
 
 // PriorityCandidate defines a candidate model with priority and weight
 type PriorityCandidate struct {
-	ModelName string `mapstructure:"modelName" yaml:"modelName"`
-	Enabled   bool   `mapstructure:"enabled" yaml:"enabled"`
-	Priority  int    `mapstructure:"priority" yaml:"priority"` // Lower number = higher priority
-	Weight    int    `mapstructure:"weight" yaml:"weight"`     // Weight for round-robin within same priority
+	ModelName   string `mapstructure:"modelName" yaml:"modelName"`
+	Enabled     bool   `mapstructure:"enabled" yaml:"enabled"`
+	Priority    int    `mapstructure:"priority" yaml:"priority"`
+	Weight      int    `mapstructure:"weight" yaml:"weight"`
+	MinVipLevel int    `mapstructure:"minVipLevel" yaml:"minVipLevel"`
 }
 
 // AgentConfig holds configuration for a specific agent

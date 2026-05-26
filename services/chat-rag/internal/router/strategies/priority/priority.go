@@ -8,20 +8,21 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zgsm-ai/chat-rag/internal/bootstrap"
 	"github.com/zgsm-ai/chat-rag/internal/config"
 	"github.com/zgsm-ai/chat-rag/internal/logger"
+	"github.com/zgsm-ai/chat-rag/internal/model"
 	"github.com/zgsm-ai/chat-rag/internal/types"
 	"go.uber.org/zap"
 )
 
 // Strategy implements the priority-based round-robin routing strategy
 type Strategy struct {
-	cfg             config.PriorityConfig
-	priorityGroups  map[int]*PriorityGroup
-	mu              sync.RWMutex
-	lowestPriority  int // Track the highest priority (lowest number)
+	cfg            config.PriorityConfig
+	priorityGroups map[int]*PriorityGroup
+	mu             sync.RWMutex
 }
 
 // New creates a new priority strategy instance
@@ -33,7 +34,6 @@ func New(cfg config.PriorityConfig) (*Strategy, error) {
 	s := &Strategy{
 		cfg:            cfg,
 		priorityGroups: make(map[int]*PriorityGroup),
-		lowestPriority: 999,
 	}
 
 	// Initialize priority groups from config
@@ -60,7 +60,6 @@ func (s *Strategy) Run(
 		return "", "", nil, nil
 	}
 
-	// Only trigger when request model is "auto"
 	if !strings.EqualFold(req.Model, "auto") {
 		return "", "", nil, nil
 	}
@@ -68,38 +67,27 @@ func (s *Strategy) Run(
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 1. Filter enabled candidates
-	enabledCandidates := s.filterEnabledCandidates()
-	if len(enabledCandidates) == 0 {
-		logger.WarnC(ctx, "priority router: no enabled candidates found")
-		if s.cfg.FallbackModelName != "" {
-			return s.cfg.FallbackModelName, "", []string{s.cfg.FallbackModelName}, nil
-		}
-		return "", "", nil, errors.New("no enabled candidates and no fallback configured")
+	identity, _ := model.GetIdentityFromContext(ctx)
+	selection := s.visibleSelectionFor(identity, time.Now())
+	if len(selection.allVisible) == 0 {
+		logger.WarnC(ctx, "priority router: no visible candidates found")
+		return "", "", nil, errors.New("no visible candidates configured for current user")
+	}
+	if selection.selectedGroup == nil {
+		logger.ErrorC(ctx, "priority router: visible priority group not found")
+		return "", "", nil, errors.New("visible priority group not found")
 	}
 
-	// 2. Select the highest priority group (lowest priority number)
-	highestPriorityGroup := s.priorityGroups[s.lowestPriority]
-	if highestPriorityGroup == nil {
-		logger.ErrorC(ctx, "priority router: highest priority group not found",
-			zap.Int("priority", s.lowestPriority))
-		if s.cfg.FallbackModelName != "" {
-			return s.cfg.FallbackModelName, "", []string{s.cfg.FallbackModelName}, nil
-		}
-		return "", "", nil, errors.New("priority group not found")
-	}
-
-	// 3. Select model using round-robin within the priority group
-	selectedModel := highestPriorityGroup.selectModelByRoundRobin()
+	selectedModel := selection.selectedGroup.selectVisibleModelByRoundRobin(selection.selectedVisible)
 
 	logger.InfoC(ctx, "priority router: model selected",
 		zap.String("selectedModel", selectedModel),
-		zap.Int("priority", s.lowestPriority),
-		zap.Int("groupSize", len(highestPriorityGroup.models)),
+		zap.Int("priority", selection.selectedPriority),
+		zap.Int("visibleGroupSize", len(selection.selectedVisible)),
 	)
 
-	// 4. Build ordered candidates list (selectedModel first, then by priority and weight)
-	orderedCandidates := s.buildOrderedCandidates(selectedModel)
+	orderedCandidates := s.buildOrderedCandidates(selectedModel, selection.allVisible)
+	orderedCandidates = s.appendVisibleFallback(ctx, orderedCandidates, selection.allVisible)
 
 	return selectedModel, "", orderedCandidates, nil
 }
@@ -120,17 +108,13 @@ func (s *Strategy) initializePriorityGroups() error {
 
 		// Add model to group
 		model := &ModelCandidate{
-			modelName: candidate.ModelName,
-			priority:  candidate.Priority,
-			weight:    candidate.Weight,
-			enabled:   candidate.Enabled,
+			modelName:   candidate.ModelName,
+			priority:    candidate.Priority,
+			weight:      candidate.Weight,
+			enabled:     candidate.Enabled,
+			minVipLevel: candidate.MinVipLevel,
 		}
 		group.addModel(model)
-
-		// Track lowest priority number (highest priority)
-		if candidate.Priority < s.lowestPriority {
-			s.lowestPriority = candidate.Priority
-		}
 	}
 
 	if len(s.priorityGroups) == 0 {
@@ -140,61 +124,145 @@ func (s *Strategy) initializePriorityGroups() error {
 	return nil
 }
 
-// filterEnabledCandidates returns all enabled candidates
-func (s *Strategy) filterEnabledCandidates() []*ModelCandidate {
-	candidates := make([]*ModelCandidate, 0)
-	for _, group := range s.priorityGroups {
-		candidates = append(candidates, group.getModels()...)
-	}
-	return candidates
-}
-
 // buildOrderedCandidates builds an ordered list of candidates for degradation
-// The selectedModel is always first, followed by other models sorted by priority (ascending)
+// The selectedModel is always first, followed by other visible models sorted by priority (ascending)
 // and weight (descending) within the same priority
-func (s *Strategy) buildOrderedCandidates(selectedModel string) []string {
+func (s *Strategy) buildOrderedCandidates(selectedModel string, visibleCandidates []*ModelCandidate) []string {
 	result := []string{selectedModel}
 
-	// Get all priority levels sorted (ascending order - lower number = higher priority)
+	ordered := append([]*ModelCandidate(nil), visibleCandidates...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].priority == ordered[j].priority {
+			return ordered[i].weight > ordered[j].weight
+		}
+		return ordered[i].priority < ordered[j].priority
+	})
+
+	for _, candidate := range ordered {
+		if candidate.modelName != selectedModel {
+			result = append(result, candidate.modelName)
+		}
+	}
+
+	return result
+}
+
+func containsModel(models []string, modelName string) bool {
+	for _, m := range models {
+		if m == modelName {
+			return true
+		}
+	}
+	return false
+}
+
+func findCandidateByName(candidates []*ModelCandidate, modelName string) *ModelCandidate {
+	for _, c := range candidates {
+		if c.modelName == modelName {
+			return c
+		}
+	}
+	return nil
+}
+
+func (s *Strategy) appendVisibleFallback(
+	ctx context.Context,
+	ordered []string,
+	visibleCandidates []*ModelCandidate,
+) []string {
+	if s.cfg.FallbackModelName == "" {
+		return ordered
+	}
+	if containsModel(ordered, s.cfg.FallbackModelName) {
+		return ordered
+	}
+	fallback := findCandidateByName(visibleCandidates, s.cfg.FallbackModelName)
+	if fallback == nil {
+		if !s.isCandidateDeclared(s.cfg.FallbackModelName) {
+			logger.WarnC(ctx, "priority router: fallback model is not declared in candidates",
+				zap.String("fallbackModelName", s.cfg.FallbackModelName))
+		} else {
+			logger.WarnC(ctx, "priority router: fallback model is not visible to current user",
+				zap.String("fallbackModelName", s.cfg.FallbackModelName))
+		}
+		return ordered
+	}
+	return append(ordered, fallback.modelName)
+}
+
+func (s *Strategy) isCandidateDeclared(modelName string) bool {
+	for _, c := range s.cfg.Candidates {
+		if c.ModelName == modelName {
+			return true
+		}
+	}
+	return false
+}
+
+func isCandidateVisible(candidate *ModelCandidate, identity *model.Identity, now time.Time) bool {
+	if candidate == nil {
+		return false
+	}
+	required := candidate.minVipLevel
+	if required == 0 {
+		return true
+	}
+	if identity == nil || identity.UserInfo == nil {
+		return false
+	}
+	user := identity.UserInfo
+	hasVipLevel := user.Vip >= required
+	isVipUnexpired := user.VipExpire == nil || now.Before(*user.VipExpire)
+	return hasVipLevel && isVipUnexpired
+}
+
+func filterVisibleModels(models []*ModelCandidate, identity *model.Identity, now time.Time) []*ModelCandidate {
+	visible := make([]*ModelCandidate, 0, len(models))
+	for _, candidate := range models {
+		if isCandidateVisible(candidate, identity, now) {
+			visible = append(visible, candidate)
+		}
+	}
+	return visible
+}
+
+type visibleSelection struct {
+	selectedPriority int
+	selectedGroup    *PriorityGroup
+	selectedVisible  []*ModelCandidate
+	allVisible       []*ModelCandidate
+}
+
+func (s *Strategy) visibleSelectionFor(identity *model.Identity, now time.Time) visibleSelection {
 	priorities := make([]int, 0, len(s.priorityGroups))
 	for priority := range s.priorityGroups {
 		priorities = append(priorities, priority)
 	}
 	sort.Ints(priorities)
 
-	// Build ordered list
+	selection := visibleSelection{
+		selectedPriority: -1,
+		allVisible:       make([]*ModelCandidate, 0),
+	}
+
 	for _, priority := range priorities {
 		group := s.priorityGroups[priority]
-		models := group.getModels()
-
-		// Sort by weight descending within same priority
-		sort.Slice(models, func(i, j int) bool {
-			return models[i].weight > models[j].weight
-		})
-
-		for _, model := range models {
-			// Skip selectedModel (already first)
-			if model.modelName != selectedModel {
-				result = append(result, model.modelName)
-			}
+		if group == nil {
+			continue
 		}
+		visible := filterVisibleModels(group.getModels(), identity, now)
+		if len(visible) == 0 {
+			continue
+		}
+		if selection.selectedGroup == nil {
+			selection.selectedPriority = priority
+			selection.selectedGroup = group
+			selection.selectedVisible = visible
+		}
+		selection.allVisible = append(selection.allVisible, visible...)
 	}
 
-	// Append fallback model if not already in list
-	if s.cfg.FallbackModelName != "" {
-		found := false
-		for _, m := range result {
-			if m == s.cfg.FallbackModelName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			result = append(result, s.cfg.FallbackModelName)
-		}
-	}
-
-	return result
+	return selection
 }
 
 // validateConfig validates the priority configuration
@@ -213,6 +281,9 @@ func validateConfig(cfg config.PriorityConfig) error {
 		}
 		if candidate.Weight < 1 || candidate.Weight > 100 {
 			return fmt.Errorf("weight must be between 1 and 100 for model %s", candidate.ModelName)
+		}
+		if candidate.MinVipLevel < 0 {
+			return fmt.Errorf("minVipLevel must be >= 0 for model %s", candidate.ModelName)
 		}
 		if candidate.Enabled {
 			hasEnabled = true
