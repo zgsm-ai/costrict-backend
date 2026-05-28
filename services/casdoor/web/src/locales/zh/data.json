@@ -575,7 +575,7 @@
     "bind with type": "通过 {type} 绑定",
     "bind with Phone": "通过手机号绑定",
     "bind tips": "若该账户之前已注册 CoStrict，账号绑定后会做合并处理（包括 credit）",
-    "Invitation recommendation": "邀请人推荐",
+    "Invitation recommendation": "有邀请码？填写>",
     "Please fill in the invitation code": "请填写邀请码",
     "Please enter the correct invitation code": "请输入正确的邀请码",
     "Invitation code": "邀请码",

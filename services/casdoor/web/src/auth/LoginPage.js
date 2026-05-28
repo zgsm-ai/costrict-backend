@@ -181,6 +181,10 @@ class LoginPage extends React.Component {
   }
 
   providerBtnCheckInvitationCode() {
+    // 展开输入框且有填写内容时才校验
+    if (!this.state.invitationChecked || !this.state.invitationCode) {
+      return Promise.resolve(true);
+    }
     // 先更新 Form 表单中的邀请码值
     return new Promise((resolve) => {
       this.invitationForm.current.setFieldsValue({
@@ -208,8 +212,8 @@ class LoginPage extends React.Component {
   }
 
   validateInvitationCode(values) {
-    // 邀请码校验逻辑
-    if (this.state.showInvitationRecommendation && this.state.invitationChecked) {
+    // 邀请码校验逻辑：展开输入框且有填写内容时才校验
+    if (this.state.showInvitationRecommendation && this.state.invitationChecked && this.state.invitationCode) {
       // 先更新 Form 表单中的邀请码值
       this.invitationForm.current.setFieldsValue({
         invitationCode: this.state.invitationCode,
@@ -1569,13 +1573,13 @@ class LoginPage extends React.Component {
                       maxWidth: "350px",
                     }}>
                       <Form name="" ref={this.invitationForm}>
-                        <Form.Item>
-                          <Checkbox
-                            checked={this.state.invitationChecked}
-                            onChange={(e) => this.setState({invitationChecked: e.target.checked})}
+                        <Form.Item style={{marginBottom: this.state.invitationChecked ? "24px" : "0"}}>
+                          <span
+                            style={{cursor: "pointer", color: "#5936D5", userSelect: "none"}}
+                            onClick={() => this.setState({invitationChecked: !this.state.invitationChecked})}
                           >
                             {i18next.t("login:Invitation recommendation")}
-                          </Checkbox>
+                          </span>
                         </Form.Item>
                         {this.state.invitationChecked && (
                           <Form.Item
