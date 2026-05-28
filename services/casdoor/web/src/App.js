@@ -19,7 +19,7 @@ import * as Setting from "./Setting";
 import {setOrgIsTourVisible, setTourLogo} from "./TourConfig";
 import {StyleProvider, legacyLogicalPropertiesTransformer} from "@ant-design/cssinjs";
 import {GithubOutlined, InfoCircleFilled, ShareAltOutlined} from "@ant-design/icons";
-import {Alert, Button, Checkbox, ConfigProvider, Drawer, FloatButton, Layout, Result, Tooltip} from "antd";
+import {Alert, Button, ConfigProvider, Drawer, FloatButton, Layout, Result, Tooltip} from "antd";
 import {Route, Switch, withRouter} from "react-router-dom";
 import CustomGithubCorner from "./common/CustomGithubCorner";
 import * as Conf from "./Conf";
@@ -293,7 +293,7 @@ class App extends Component {
       <React.Fragment>
         {!this.state.account ? null : <div style={{display: "none"}} id="CasdoorApplicationName" value={this.state.account.signupApplication} />}
         {!this.state.account ? null : <div style={{display: "none"}} id="CasdoorAccessToken" value={this.state.accessToken} />}
-        <Footer id="footer" style={
+        {!isOAuthAuthorizePage && <Footer id="footer" style={
           {
             textAlign: "center",
             zIndex: 1000,
@@ -314,36 +314,32 @@ class App extends Component {
                 Conf.CustomFooter !== null ? Conf.CustomFooter : (
                   <React.Fragment>
                     {/* Powered by <a target="_blank" href="https://casdoor.org" rel="noreferrer"><img style={{paddingBottom: "3px"}} height={"20px"} alt={"Casdoor"} src={logo} /></a> */}
-                    <div className="terms-privacy" style={{display: "flex", justifyContent: "center", fontSize: "14px", alignItems: "center", flexWrap: "wrap", gap: "8px", padding: "0 10px"}}>
-                      {isOAuthAuthorizePage && (
-                        <React.Fragment>
-                          <Checkbox checked={this.state.termsAccepted} onChange={this.onTermsChange} style={{marginRight: "8px"}} />
-                          <div style={{opacity: "0.5"}}>{i18next.t("login:Login by acceptance")}</div>
-                        </React.Fragment>
-                      )}
-                      <a
-                        href={termsOfService}
-                        className="terms-link"
-                        style={{...commonStyle, marginLeft: "4px", marginRight: "4px"}}
-                        target="open"
-                      >
-                        {i18next.t("login:Terms of Service")}
-                      </a>
-                      <span style={{opacity: 0.3}}>|</span>
-                      <a
-                        href={privacyPolicy}
-                        className="privacy-link"
-                        style={{...commonStyle, marginLeft: "4px"}}
-                        target="open"
-                      >
-                        {i18next.t("login:Privacy Policy")}
-                      </a>
-                    </div>
+                    {!isOAuthAuthorizePage && (
+                      <div className="terms-privacy" style={{display: "flex", justifyContent: "center", fontSize: "14px", alignItems: "center", flexWrap: "wrap", gap: "8px", padding: "0 10px"}}>
+                        <a
+                          href={termsOfService}
+                          className="terms-link"
+                          style={{...commonStyle, marginLeft: "4px", marginRight: "4px"}}
+                          target="open"
+                        >
+                          {i18next.t("login:Terms of Service")}
+                        </a>
+                        <span style={{opacity: 0.3}}>|</span>
+                        <a
+                          href={privacyPolicy}
+                          className="privacy-link"
+                          style={{...commonStyle, marginLeft: "4px"}}
+                          target="open"
+                        >
+                          {i18next.t("login:Privacy Policy")}
+                        </a>
+                      </div>
+                    )}
                   </React.Fragment>
                 )
               )
           }
-        </Footer>
+        </Footer>}
       </React.Fragment>
     );
   }

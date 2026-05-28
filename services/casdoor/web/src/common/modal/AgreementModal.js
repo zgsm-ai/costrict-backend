@@ -58,7 +58,7 @@ function getTermsOfUseContent(url) {
 
 export function isAgreementRequired(application) {
   if (application) {
-    const agreementItem = application.signupItems.find(item => item.name === "Agreement");
+    const agreementItem = application.signupItems?.find(item => item.name === "Agreement");
     if (!agreementItem || agreementItem.rule === "None" || !agreementItem.rule) {
       return false;
     }

@@ -209,10 +209,6 @@ export function renderProviderLogo(provider, application, width, margin, size, l
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: "#d9d9d9",
-            borderRadius: "2px",
             cursor: "pointer",
           }}
           onClick={async() => {
@@ -284,9 +280,7 @@ export function renderProviderLogo(provider, application, width, margin, size, l
               fontSize: "16px",
               fontWeight: 600,
             }}>
-              {bindType
-                ? i18next.t("login:bind with type").replace("{type}", provider.name)
-                : i18next.t("login:Log in with type").replace("{type}", provider.name)}
+              {provider.displayName || provider.type}
             </span>
           </div>
         );

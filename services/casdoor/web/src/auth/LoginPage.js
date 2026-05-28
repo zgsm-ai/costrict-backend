@@ -907,9 +907,30 @@ class LoginPage extends React.Component {
         return null;
       }
 
+      const isOAuthAuthorize = this.props.location?.pathname === "/login/oauth/authorize";
+      const language = Setting.getLanguage();
+      const privacyPolicyUrl = `https://docs.costrict.ai/${language === "en" ? "en/" : ""}policy/privacy-policy`;
+      const termsOfServiceUrl = `https://docs.costrict.ai/${language === "en" ? "en/" : ""}plugin/policy/terms-of-service`;
+
       return (
         <Form.Item key={resultItemKey} className="login-button-box" style={{marginBottom: "0"}}>
           <div dangerouslySetInnerHTML={{__html: ("<style>" + signinItem.customCss?.replaceAll("<style>", "").replaceAll("</style>", "") + "</style>")}} />
+          {
+            isOAuthAuthorize ? (
+              <Form.Item style={{marginBottom: "16px", textAlign: "left"}}>
+                <Checkbox checked={this.props.termsAccepted} onChange={this.props.onTermsChange}>
+                  {i18next.t("login:I have read and agree to")}&nbsp;
+                  <a href={termsOfServiceUrl} target="_blank" rel="noreferrer">
+                    {i18next.t("login:Terms of Service")}
+                  </a>
+                  &nbsp;{i18next.t("login:and")}&nbsp;
+                  <a href={privacyPolicyUrl} target="_blank" rel="noreferrer">
+                    {i18next.t("login:Privacy Policy")}
+                  </a>
+                </Checkbox>
+              </Form.Item>
+            ) : null
+          }
           <Button
             loading={this.state.loginLoading}
             type="primary"
@@ -969,22 +990,20 @@ class LoginPage extends React.Component {
           <div dangerouslySetInnerHTML={{__html: ("<style>" + signinItem.customCss?.replaceAll("<style>", "").replaceAll("</style>", "") + "</style>")}} />
           <Form.Item>
             {
-              application.providers.filter(providerItem => this.isProviderVisible(providerItem)).map((providerItem, id) => {
-                if (providerHint === providerItem.provider.name) {
-                  goToLink(Provider.getAuthUrl(application, providerItem.provider, "signup"));
-                  return;
-                }
-                return (
-                  <>
-                    {
-                      (this.state.bindType !== "github" && !this.getHasIdtrustProviderItems()) && (
-                        <Divider style={{fontSize: "14px", margin: "32px 0"}}>{i18next.t("login:Other login methods")}</Divider>
-                      )
-                    }
+              (this.state.bindType !== "github" && !this.getHasIdtrustProviderItems()) && (
+                <Divider style={{fontSize: "14px", margin: "32px 0"}}>{i18next.t("login:Other login methods")}</Divider>
+              )
+            }
+            <div style={{display: "flex", flexWrap: "wrap", gap: "16px", justifyContent: "center"}}>
+              {
+                application.providers.filter(providerItem => this.isProviderVisible(providerItem)).map((providerItem, id) => {
+                  if (providerHint === providerItem.provider.name) {
+                    goToLink(Provider.getAuthUrl(application, providerItem.provider, "signup"));
+                    return;
+                  }
+                  return (
                     <span key={id} onClick={(e) => {
-                      const agreementChecked = this.form.current.getFieldValue("agreement");
-
-                      if (agreementChecked !== undefined && typeof agreementChecked === "boolean" && !agreementChecked) {
+                      if (!this.props.termsAccepted) {
                         e.preventDefault();
                         message.error(i18next.t("signup:Please accept the agreement!"));
                       }
@@ -993,10 +1012,10 @@ class LoginPage extends React.Component {
                         ProviderButton.renderProviderLogo(providerItem.provider, application, null, null, signinItem.rule, this.props.location, this.state.bindType, this.state.isFromWeb, this.state.invitationCode, this.state.invitationChecked, () => this.providerBtnCheckInvitationCode(), (e) => this.onTermsChange(e), this.props.termsAccepted)
                       }
                     </span>
-                  </>
-                );
-              })
-            }
+                  );
+                })
+              }
+            </div>
             {
               this.renderOtherFormProvider(application)
             }
@@ -1549,7 +1568,9 @@ class LoginPage extends React.Component {
       );
     }
 
-    return (
+    // const isOAuthAuthorizePage = this.props.location?.pathname === "/login/oauth/authorize";
+
+    const content = (
       <React.Fragment>
         <CustomGithubCorner />
         <div className="login-content" style={{margin: this.props.preview ?? this.parseOffset(application.formOffset)}}>
@@ -1568,17 +1589,18 @@ class LoginPage extends React.Component {
                   // 邀请人推荐
                   this.state.showInvitationRecommendation && !this.state.bindType && (
                     <div style={{
-                      textAlign: "left",
-                      marginTop: "24px",
+                      textAlign: "center",
+                      marginTop: "61px",
                       maxWidth: "350px",
                     }}>
                       <Form name="" ref={this.invitationForm}>
                         <Form.Item style={{marginBottom: this.state.invitationChecked ? "24px" : "0"}}>
                           <span
-                            style={{cursor: "pointer", color: "#5936D5", userSelect: "none"}}
+                            style={{cursor: "pointer", userSelect: "none"}}
                             onClick={() => this.setState({invitationChecked: !this.state.invitationChecked})}
                           >
-                            {i18next.t("login:Invitation recommendation")}
+                            <span style={{color: "#000", opacity: 0.4}}>{i18next.t("login:Invitation recommendation prompt")}</span>
+                            <span style={{color: "#000"}}>{i18next.t("login:Invitation recommendation action")}</span>
                           </span>
                         </Form.Item>
                         {this.state.invitationChecked && (
@@ -1649,6 +1671,8 @@ class LoginPage extends React.Component {
         </div>
       </React.Fragment>
     );
+
+    return content;
   }
 }
 
