@@ -331,28 +331,29 @@ func (ls *LoggerRecordService) logDirectToStorage(logs *model.ChatLog) {
 		ls.metricsService.RecordChatLog(logs)
 	}
 
-	// If the log contains errors and saveErrorLog is false, skip saving to permanent storage
+	// Decide whether to save to permanent storage.
+	// When the log contains errors and saveErrorLog is false, skip saving.
+	var writeInfo *storage.WriteInfo
 	if len(logs.Error) > 0 && !ls.saveErrorLog {
 		logger.Info("Skipping log save.",
 			zap.String("request_id", logs.Identity.RequestID),
 			zap.Int("error_count", len(logs.Error)),
 		)
-		// Metrics reporting should still happen even when logs are not saved to storage
-		if ls.metricsReporter != nil {
-			var e string = ""
-			if len(logs.Error) > 0 {
-				for key := range logs.Error[0] {
-					e = string(key)
-					break
-				}
-			}
-			go ls.metricsReporter.ReportMetrics(logs, nil, e) // async report metrics, writeInfo is nil since no storage write occurred
-		}
-		return
+	} else {
+		writeInfo = ls.saveLogToPermanentStorage(logs)
 	}
 
-	// Save directly to permanent storage
-	ls.saveLogToPermanentStorage(logs)
+	// Always report metrics, regardless of whether the save succeeded or was skipped.
+	if ls.metricsReporter != nil {
+		var e string = ""
+		if len(logs.Error) > 0 {
+			for key := range logs.Error[0] {
+				e = string(key)
+				break
+			}
+		}
+		go ls.metricsReporter.ReportMetrics(logs, writeInfo, e) // async report metrics
+	}
 }
 
 /*
@@ -584,11 +585,13 @@ func (ls *LoggerRecordService) validateCategory(category string) string {
 }
 */
 
-// saveLogToPermanentStorage saves a single log to permanent storage
-func (ls *LoggerRecordService) saveLogToPermanentStorage(chatLog *model.ChatLog) {
+// saveLogToPermanentStorage saves a single log to permanent storage.
+// Returns the WriteInfo on success, nil on failure.
+// The caller is responsible for reporting metrics.
+func (ls *LoggerRecordService) saveLogToPermanentStorage(chatLog *model.ChatLog) *storage.WriteInfo {
 	if chatLog == nil {
 		logger.Error("Invalid log or missing required identity fields")
-		return
+		return nil
 	}
 
 	// Directory structure: year-month/day/username
@@ -614,15 +617,13 @@ func (ls *LoggerRecordService) saveLogToPermanentStorage(chatLog *model.ChatLog)
 		logger.Error("Failed to marshal log for permanent storage",
 			zap.Error(err),
 		)
-		return
+		return nil
 	}
 
 	data := []byte(jsonStr)
 	data = append(data, '\n') // trailing newline for consistency
 
 	// Write via storage backend if available, otherwise fall back to direct file write.
-	// writeInfo carries the file path / S3 version-id returned by the backend.
-	var writeInfo *storage.WriteInfo
 	if ls.storageBackend != nil {
 		info, err := ls.storageBackend.Write(storageKey, data)
 		if err != nil {
@@ -630,35 +631,22 @@ func (ls *LoggerRecordService) saveLogToPermanentStorage(chatLog *model.ChatLog)
 				zap.String("key", storageKey),
 				zap.Error(err),
 			)
-			return
+			return nil
 		}
-		writeInfo = info
 		logger.Info("Log saved in storage", zap.String("key", storageKey))
-	} else {
-		// Backward compatibility: direct file write when no backend is injected
-		logFile := filepath.Join(ls.logFilePath, storageKey)
-		if err := ls.writeLogToFile(logFile, jsonStr, os.O_CREATE|os.O_WRONLY); err != nil {
-			logger.Error("Failed to write log to permanent storage",
-				zap.Error(err),
-			)
-			return
-		}
-		writeInfo = &storage.WriteInfo{FilePath: storageKey}
-		logger.Info("Log saved in storage", zap.String("fileName", logFile))
+		return info
 	}
 
-	// Report metrics — pass writeInfo so the reporter can record the log path and S3 version-id.
-	if ls.metricsReporter != nil {
-		var e string = ""
-		if len(chatLog.Error) > 0 {
-			// first item's first key
-			for key := range chatLog.Error[0] {
-				e = string(key)
-				break
-			}
-		}
-		go ls.metricsReporter.ReportMetrics(chatLog, writeInfo, e) // async report metrics
+	// Backward compatibility: direct file write when no backend is injected
+	logFile := filepath.Join(ls.logFilePath, storageKey)
+	if err := ls.writeLogToFile(logFile, jsonStr, os.O_CREATE|os.O_WRONLY); err != nil {
+		logger.Error("Failed to write log to permanent storage",
+			zap.Error(err),
+		)
+		return nil
 	}
+	logger.Info("Log saved in storage", zap.String("fileName", logFile))
+	return &storage.WriteInfo{FilePath: storageKey}
 }
 
 func truncateUTF8ByBytes(s string, maxBytes int) string {

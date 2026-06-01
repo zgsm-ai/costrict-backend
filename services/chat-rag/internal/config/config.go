@@ -92,6 +92,7 @@ type LogS3Config struct {
 	AccessKey       string `mapstructure:"accessKey" yaml:"accessKey"`
 	SecretKey       string `mapstructure:"secretKey" yaml:"secretKey"`
 	UseSSL          bool   `mapstructure:"useSSL" yaml:"useSSL"`
+	SkipSSLVerify   bool   `mapstructure:"skipSSLVerify" yaml:"skipSSLVerify"`
 	Region          string `mapstructure:"region" yaml:"region"`
 	SkipBucketCheck bool   `mapstructure:"skipBucketCheck" yaml:"skipBucketCheck"`
 }

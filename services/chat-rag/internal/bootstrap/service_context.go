@@ -161,6 +161,7 @@ func (svc *ServiceContext) initializeStorage() error {
 			SecretKey:       svc.Config.Log.S3.SecretKey,
 			UseSSL:          svc.Config.Log.S3.UseSSL,
 			Region:          svc.Config.Log.S3.Region,
+			SkipSSLVerify:   svc.Config.Log.S3.SkipSSLVerify,
 			SkipBucketCheck: svc.Config.Log.S3.SkipBucketCheck,
 		}
 		backend, err := storage.NewS3Storage(s3Cfg)

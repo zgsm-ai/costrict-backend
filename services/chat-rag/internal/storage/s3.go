@@ -3,7 +3,9 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -12,12 +14,13 @@ import (
 // S3Config holds the configuration required to connect to an S3-compatible
 // object storage service (e.g., AWS S3, MinIO, Ceph RGW).
 type S3Config struct {
-	Endpoint  string // Host and optional port, e.g. "s3.amazonaws.com" or "minio:9000"
-	Bucket    string // Target bucket name; created automatically if it does not exist
-	AccessKey string
-	SecretKey string
-	UseSSL    bool   // Whether to use HTTPS for the connection
-	Region    string // Bucket region, e.g. "us-east-1"; may be empty for MinIO
+	Endpoint      string // Host and optional port, e.g. "s3.amazonaws.com" or "minio:9000"
+	Bucket        string // Target bucket name; created automatically if it does not exist
+	AccessKey     string
+	SecretKey     string
+	UseSSL        bool // Whether to use HTTPS for the connection
+	SkipSSLVerify bool
+	Region        string // Bucket region, e.g. "us-east-1"; may be empty for MinIO
 	// SkipBucketCheck disables the BucketExists / MakeBucket calls during init.
 	// Useful when the credentials lack s3:ListBucket / s3:CreateBucket but the
 	// bucket is already provisioned out-of-band. Defaults to false (check enabled).
@@ -39,11 +42,21 @@ type S3Storage struct {
 // and creates it when absent. Any error during client creation or bucket
 // setup is returned immediately.
 func NewS3Storage(cfg S3Config) (*S3Storage, error) {
-	client, err := minio.New(cfg.Endpoint, &minio.Options{
+	opts := &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
 		Region: cfg.Region,
-	})
+	}
+	// only  userSSL can skip
+	if cfg.UseSSL && cfg.SkipSSLVerify {
+		opts.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	}
+
+	client, err := minio.New(cfg.Endpoint, opts)
 	if err != nil {
 		return nil, fmt.Errorf("s3 storage: failed to create client: %w", err)
 	}
@@ -83,8 +96,8 @@ func (s *S3Storage) Write(key string, data []byte) (*WriteInfo, error) {
 		return nil, fmt.Errorf("s3 storage: failed to write object %q: %w", key, err)
 	}
 	return &WriteInfo{
-		FilePath:  info.Key,
-		ETag:      info.ETag,
+		FilePath: info.Key,
+		ETag:     info.ETag,
 	}, nil
 }
 
