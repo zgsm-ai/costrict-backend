@@ -71,15 +71,53 @@ type ChatLog struct {
 	ProcessedPrompt []types.Message `json:"processed_prompt"`
 
 	// Response information
-	ResponseHeaders []map[string]string  `json:"response_headers,omitempty"`
+	ResponseHeaders []map[string]string    `json:"response_headers,omitempty"`
 	ResponseContent *types.ResponseContent `json:"response_content,omitempty"`
-	Usage           types.Usage          `json:"usage,omitempty"`
+	Usage           types.Usage            `json:"usage,omitempty"`
 
 	// Classification (will be filled by async processor)
 	Category string `json:"category,omitempty"`
 
 	// Error information
 	Error []map[types.ErrorType]string `json:"error,omitempty"`
+
+	// Degradation trace
+	DegradationTrace []DegradationEvent `json:"degradation_trace,omitempty"`
+}
+
+type DegradationEventType string
+
+const (
+	DegradationEventStarted                        DegradationEventType = "degradation_started"
+	DegradationEventAttemptStarted                 DegradationEventType = "attempt_started"
+	DegradationEventAttemptFailed                  DegradationEventType = "attempt_failed"
+	DegradationEventRetryScheduled                 DegradationEventType = "retry_scheduled"
+	DegradationEventRetrySkippedInsufficientBudget DegradationEventType = "retry_skipped_insufficient_budget"
+	DegradationEventModelSwitch                    DegradationEventType = "model_switch"
+	DegradationEventStopped                        DegradationEventType = "degradation_stopped"
+	DegradationEventModelSucceeded                 DegradationEventType = "model_succeeded"
+	DegradationEventTraceTruncated                 DegradationEventType = "trace_truncated"
+)
+
+type DegradationEvent struct {
+	Sequence            int                  `json:"sequence"`
+	Timestamp           time.Time            `json:"timestamp"`
+	Event               DegradationEventType `json:"event"`
+	Model               string               `json:"model,omitempty"`
+	PreviousModel       string               `json:"previous_model,omitempty"`
+	OrderedModels       []string             `json:"ordered_models,omitempty"`
+	ModelIndex          int                  `json:"model_index"`
+	Attempt             int                  `json:"attempt,omitempty"`
+	MaxRetries          int                  `json:"max_retries,omitempty"`
+	Retryable           *bool                `json:"retryable,omitempty"`
+	Switchable          *bool                `json:"switchable,omitempty"`
+	StatusCode          int                  `json:"status_code,omitempty"`
+	ErrorCode           string               `json:"error_code,omitempty"`
+	ErrorType           string               `json:"error_type,omitempty"`
+	ErrorMessage        string               `json:"error_message,omitempty"`
+	ElapsedMs           int64                `json:"elapsed_ms,omitempty"`
+	Reason              string               `json:"reason,omitempty"`
+	CompatibilitySignal bool                 `json:"compatibility_signal,omitempty"`
 }
 
 // toStringJSON converts the log entry to indented JSON string

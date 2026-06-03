@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.uber.org/zap"
 
@@ -39,6 +41,10 @@ type ChatCompletionLogic struct {
 	orderedModels   []string
 	streamCommitted bool
 	originalModel   string
+
+	degradationTrace     []model.DegradationEvent
+	degradationTraceSeq  int
+	degradationTraceFull bool
 }
 
 func NewChatCompletionLogic(
@@ -65,6 +71,11 @@ func NewChatCompletionLogic(
 const (
 	MaxToolCallDepth    = 6
 	MaxToolResultLength = 100_000
+)
+
+const (
+	maxDegradationTraceEvents = 64
+	maxDegradationErrorBytes  = 512
 )
 
 // processRequest handles common request processing logic
@@ -168,6 +179,9 @@ func (l *ChatCompletionLogic) updateChatLog(chatLog *model.ChatLog, processedPro
 func (l *ChatCompletionLogic) logCompletion(chatLog *model.ChatLog) {
 	chatLog.Latency.TotalLatency = time.Since(chatLog.Timestamp).Milliseconds()
 	chatLog.Params.RoutedModel = l.request.Model
+	if len(l.degradationTrace) > 0 {
+		chatLog.DegradationTrace = append([]model.DegradationEvent(nil), l.degradationTrace...)
+	}
 	if l.svcCtx.LoggerService != nil {
 		l.svcCtx.LoggerService.LogAsync(chatLog, l.headers)
 	}
@@ -393,7 +407,17 @@ func (l *ChatCompletionLogic) ChatCompletionStream() error {
 
 	maxRetryCount, retryInterval, _, _ := l.getRetryConfig()
 	var lastErr error
-	for _, modelName := range models {
+	if len(models) > 0 {
+		l.appendDegradationEvent(model.DegradationEvent{
+			Event:         model.DegradationEventStarted,
+			Model:         models[0],
+			ModelIndex:    0,
+			OrderedModels: append([]string(nil), models...),
+			MaxRetries:    maxRetryCount,
+			Reason:        "auto_mode_stream",
+		})
+	}
+	for modelIndex, modelName := range models {
 		// Update header immediately when switching to a different model in auto mode
 		if l.writer != nil {
 			l.writer.Header().Set(types.HeaderSelectLLm, modelName)
@@ -419,14 +443,40 @@ func (l *ChatCompletionLogic) ChatCompletionStream() error {
 			l.request.Model = modelName
 			l.streamCommitted = false
 
+			attemptStart := time.Now()
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:      model.DegradationEventAttemptStarted,
+				Model:      modelName,
+				ModelIndex: modelIndex,
+				Attempt:    attempt + 1,
+				MaxRetries: maxRetryCount,
+			})
+
 			err = l.handleStreamingWithTools(l.ctx, llmClient, flusher, chatLog, MaxToolCallDepth, idleTracker)
 			if err == nil {
+				l.appendDegradationEvent(model.DegradationEvent{
+					Event:      model.DegradationEventModelSucceeded,
+					Model:      modelName,
+					ModelIndex: modelIndex,
+					Attempt:    attempt + 1,
+					MaxRetries: maxRetryCount,
+					ElapsedMs:  time.Since(attemptStart).Milliseconds(),
+					Reason:     "model_call_succeeded",
+				})
 				return nil
 			}
 
 			lastErr = err
 			if l.streamCommitted {
 				// Already started streaming; report error to client and stop
+				l.appendDegradationEvent(model.DegradationEvent{
+					Event:      model.DegradationEventStopped,
+					Model:      modelName,
+					ModelIndex: modelIndex,
+					Attempt:    attempt + 1,
+					MaxRetries: maxRetryCount,
+					Reason:     "stream_committed",
+				})
 				return l.handleStreamError(err, chatLog)
 			}
 
@@ -436,6 +486,24 @@ func (l *ChatCompletionLogic) ChatCompletionStream() error {
 				zap.Bool("retryable", retryable),
 				zap.Error(err),
 			)
+			switchable := l.isDegradationSwitchableError(err)
+			statusCode, errorCode, errorType, errorMessage, compatibilitySignal := degradationErrorFields(err)
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:               model.DegradationEventAttemptFailed,
+				Model:               modelName,
+				ModelIndex:          modelIndex,
+				Attempt:             attempt + 1,
+				MaxRetries:          maxRetryCount,
+				Retryable:           &retryable,
+				Switchable:          &switchable,
+				StatusCode:          statusCode,
+				ErrorCode:           errorCode,
+				ErrorType:           errorType,
+				ErrorMessage:        errorMessage,
+				ElapsedMs:           time.Since(attemptStart).Milliseconds(),
+				Reason:              "stream_failed_before_first_token",
+				CompatibilitySignal: compatibilitySignal,
+			})
 			if retryable && attempt < maxRetryCount {
 				// Check if we have enough idle budget remaining for retry
 				remainingIdleBudget := idleTracker.Remaining()
@@ -445,8 +513,24 @@ func (l *ChatCompletionLogic) ChatCompletionStream() error {
 						zap.String("model", modelName),
 						zap.Duration("remainingIdleBudget", remainingIdleBudget),
 						zap.Duration("minRequiredBudget", minRequiredBudget))
+					l.appendDegradationEvent(model.DegradationEvent{
+						Event:      model.DegradationEventRetrySkippedInsufficientBudget,
+						Model:      modelName,
+						ModelIndex: modelIndex,
+						Attempt:    attempt + 1,
+						MaxRetries: maxRetryCount,
+						Reason:     "insufficient_idle_budget",
+					})
 					break
 				}
+				l.appendDegradationEvent(model.DegradationEvent{
+					Event:      model.DegradationEventRetryScheduled,
+					Model:      modelName,
+					ModelIndex: modelIndex,
+					Attempt:    attempt + 1,
+					MaxRetries: maxRetryCount,
+					Reason:     "retryable_error",
+				})
 				time.Sleep(retryInterval)
 				attempt++
 				continue
@@ -456,6 +540,12 @@ func (l *ChatCompletionLogic) ChatCompletionStream() error {
 
 		// If the error is context canceled, stop trying other models
 		if errors.Is(lastErr, context.Canceled) || errors.Is(l.ctx.Err(), context.Canceled) {
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:      model.DegradationEventStopped,
+				Model:      modelName,
+				ModelIndex: modelIndex,
+				Reason:     "context_canceled",
+			})
 			break
 		}
 		if !l.isDegradationSwitchableError(lastErr) {
@@ -463,7 +553,23 @@ func (l *ChatCompletionLogic) ChatCompletionStream() error {
 				zap.String("model", modelName),
 				zap.Error(lastErr),
 			)
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:      model.DegradationEventStopped,
+				Model:      modelName,
+				ModelIndex: modelIndex,
+				Reason:     "non_switchable_error",
+			})
 			break
+		}
+		if modelIndex+1 < len(models) {
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:         model.DegradationEventModelSwitch,
+				PreviousModel: modelName,
+				Model:         models[modelIndex+1],
+				ModelIndex:    modelIndex + 1,
+				OrderedModels: append([]string(nil), models...),
+				Reason:        "previous_model_failed",
+			})
 		}
 	}
 	return l.handleStreamError(lastErr, chatLog)
@@ -1001,6 +1107,15 @@ func (l *ChatCompletionLogic) isContextLengthError(err error) bool {
 		strings.Contains(errMsg, "Input text is too long")
 }
 
+func (l *ChatCompletionLogic) degradationModelIndex(modelName string) int {
+	for i, ordered := range l.orderedModels {
+		if ordered == modelName {
+			return i
+		}
+	}
+	return -1
+}
+
 func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.LLMRequestParams, idleTrackerOpt ...*timeout.IdleTracker) (types.ChatCompletionResponse, error) {
 	nilResp := types.ChatCompletionResponse{}
 
@@ -1031,6 +1146,16 @@ func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.
 			zap.Int("maxRetries", maxRetryCount),
 		)
 
+		modelIndex := l.degradationModelIndex(modelName)
+		attemptStart := time.Now()
+		l.appendDegradationEvent(model.DegradationEvent{
+			Event:      model.DegradationEventAttemptStarted,
+			Model:      modelName,
+			ModelIndex: modelIndex,
+			Attempt:    attempt + 1,
+			MaxRetries: maxRetryCount,
+		})
+
 		// Use the shared idle tracker instead of creating a new one
 		timerCtx, timerCancel, idleTimer := timeout.NewIdleTimer(l.ctx, idleTimeout, sharedTracker)
 		resp, err := llmClient.ChatLLMWithMessagesRaw(timerCtx, params, idleTimer)
@@ -1042,6 +1167,15 @@ func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.
 				l.writer.Header().Set(types.HeaderSelectLLm, modelName)
 			}
 			logger.InfoC(l.ctx, "single-model retry: model succeeded", zap.String("model", modelName))
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:      model.DegradationEventModelSucceeded,
+				Model:      modelName,
+				ModelIndex: modelIndex,
+				Attempt:    attempt + 1,
+				MaxRetries: maxRetryCount,
+				ElapsedMs:  time.Since(attemptStart).Milliseconds(),
+				Reason:     "model_call_succeeded",
+			})
 			return resp, nil
 		}
 
@@ -1053,6 +1187,25 @@ func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.
 			zap.Error(err),
 		)
 
+		switchable := l.isDegradationSwitchableError(err)
+		statusCode, errorCode, errorType, errorMessage, compatibilitySignal := degradationErrorFields(err)
+		l.appendDegradationEvent(model.DegradationEvent{
+			Event:               model.DegradationEventAttemptFailed,
+			Model:               modelName,
+			ModelIndex:          modelIndex,
+			Attempt:             attempt + 1,
+			MaxRetries:          maxRetryCount,
+			Retryable:           &retryable,
+			Switchable:          &switchable,
+			StatusCode:          statusCode,
+			ErrorCode:           errorCode,
+			ErrorType:           errorType,
+			ErrorMessage:        errorMessage,
+			ElapsedMs:           time.Since(attemptStart).Milliseconds(),
+			Reason:              "model_call_failed",
+			CompatibilitySignal: compatibilitySignal,
+		})
+
 		if retryable && attempt < maxRetryCount {
 			// Check if we have enough idle budget remaining for retry
 			remainingIdleBudget := sharedTracker.Remaining()
@@ -1061,8 +1214,24 @@ func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.
 				logger.WarnC(l.ctx, "single-model retry: insufficient idle budget for retry",
 					zap.Duration("remainingIdleBudget", remainingIdleBudget),
 					zap.Duration("minRequiredBudget", minRequiredBudget))
+				l.appendDegradationEvent(model.DegradationEvent{
+					Event:      model.DegradationEventRetrySkippedInsufficientBudget,
+					Model:      modelName,
+					ModelIndex: modelIndex,
+					Attempt:    attempt + 1,
+					MaxRetries: maxRetryCount,
+					Reason:     "insufficient_idle_budget",
+				})
 				break
 			}
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:      model.DegradationEventRetryScheduled,
+				Model:      modelName,
+				ModelIndex: modelIndex,
+				Attempt:    attempt + 1,
+				MaxRetries: maxRetryCount,
+				Reason:     "retryable_error",
+			})
 			time.Sleep(retryInterval)
 			continue
 		}
@@ -1097,8 +1266,16 @@ func (l *ChatCompletionLogic) callWithDegradation(params types.LLMRequestParams,
 		return nilResp, fmt.Errorf("degradation: no valid model in order list")
 	}
 
+	l.appendDegradationEvent(model.DegradationEvent{
+		Event:         model.DegradationEventStarted,
+		Model:         ordered[0],
+		ModelIndex:    0,
+		OrderedModels: append([]string(nil), ordered...),
+		Reason:        "auto_mode",
+	})
+
 	var lastErr error
-	for _, modelName := range ordered {
+	for modelIndex, modelName := range ordered {
 		logger.InfoC(l.ctx, "degradation: attempting model",
 			zap.String("model", modelName),
 		)
@@ -1117,6 +1294,12 @@ func (l *ChatCompletionLogic) callWithDegradation(params types.LLMRequestParams,
 				zap.String("model", modelName),
 				zap.Error(err),
 			)
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:      model.DegradationEventStopped,
+				Model:      modelName,
+				ModelIndex: modelIndex,
+				Reason:     "context_canceled",
+			})
 			return nilResp, err
 		}
 		if !l.isDegradationSwitchableError(err) {
@@ -1124,6 +1307,12 @@ func (l *ChatCompletionLogic) callWithDegradation(params types.LLMRequestParams,
 				zap.String("model", modelName),
 				zap.Error(err),
 			)
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:      model.DegradationEventStopped,
+				Model:      modelName,
+				ModelIndex: modelIndex,
+				Reason:     "non_switchable_error",
+			})
 			return nilResp, err
 		}
 
@@ -1131,6 +1320,16 @@ func (l *ChatCompletionLogic) callWithDegradation(params types.LLMRequestParams,
 			zap.String("model", modelName),
 			zap.Error(err),
 		)
+		if modelIndex+1 < len(ordered) {
+			l.appendDegradationEvent(model.DegradationEvent{
+				Event:         model.DegradationEventModelSwitch,
+				PreviousModel: modelName,
+				Model:         ordered[modelIndex+1],
+				ModelIndex:    modelIndex + 1,
+				OrderedModels: append([]string(nil), ordered...),
+				Reason:        "previous_model_failed",
+			})
+		}
 	}
 	return nilResp, lastErr
 }
@@ -1205,7 +1404,7 @@ func (l *ChatCompletionLogic) isDegradationSwitchableError(err error) bool {
 
 		switch apiErr.StatusCode {
 		case http.StatusBadRequest:
-			return isModelCompatibilityError(apiErr)
+			return true
 		case http.StatusUnauthorized, http.StatusForbidden:
 			return false
 		case http.StatusRequestTimeout, http.StatusTooManyRequests:
@@ -1226,6 +1425,70 @@ func (l *ChatCompletionLogic) isDegradationSwitchableError(err error) bool {
 	}
 
 	return true
+}
+
+func (l *ChatCompletionLogic) appendDegradationEvent(event model.DegradationEvent) {
+	if l == nil {
+		return
+	}
+	if len(l.orderedModels) == 0 {
+		return
+	}
+	// AUTO request handling records trace events in one request goroutine.
+	if len(l.degradationTrace) >= maxDegradationTraceEvents-1 {
+		if !l.degradationTraceFull {
+			l.degradationTraceFull = true
+			l.degradationTraceSeq++
+			l.degradationTrace = append(l.degradationTrace, model.DegradationEvent{
+				Sequence:   l.degradationTraceSeq,
+				Timestamp:  time.Now(),
+				Event:      model.DegradationEventTraceTruncated,
+				ModelIndex: -1,
+				Reason:     "trace_event_limit_reached",
+			})
+		}
+		return
+	}
+	l.degradationTraceSeq++
+	event.Sequence = l.degradationTraceSeq
+	event.Timestamp = time.Now()
+	event.ErrorMessage = sanitizeDegradationErrorMessage(event.ErrorMessage)
+	l.degradationTrace = append(l.degradationTrace, event)
+}
+
+var sensitiveDegradationErrorPattern = regexp.MustCompile(`(?i)(authorization|bearer|api[-_]?key|x-api-key|secret|token)\s*[:=]\s*.{6,}`)
+
+func sanitizeDegradationErrorMessage(msg string) string {
+	msg = truncateBytes(msg, maxDegradationErrorBytes)
+	if sensitiveDegradationErrorPattern.MatchString(msg) {
+		return sensitiveDegradationErrorPattern.ReplaceAllString(msg, "$1=[redacted]")
+	}
+	return msg
+}
+
+func truncateBytes(s string, max int) string {
+	if max <= 0 || len([]byte(s)) <= max {
+		return s
+	}
+	b := []byte(s)
+	truncated := string(b[:max])
+	for !utf8.ValidString(truncated) && len(truncated) > 0 {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated
+}
+
+func degradationErrorFields(err error) (statusCode int, errorCode string, errorType string, errorMessage string, compatibilitySignal bool) {
+	if apiErr, ok := err.(*types.APIError); ok {
+		return apiErr.StatusCode, apiErr.Code, apiErr.Type, apiErr.Message, isModelCompatibilityError(apiErr)
+	}
+	if idleErr, ok := err.(*types.IdleTimeoutError); ok {
+		return http.StatusGatewayTimeout, idleErr.Code, string(types.ErrServerModel), idleErr.Message, false
+	}
+	if err != nil {
+		return 0, "", "", err.Error(), false
+	}
+	return 0, "", "", "", false
 }
 
 func isModelCompatibilityError(err error) bool {

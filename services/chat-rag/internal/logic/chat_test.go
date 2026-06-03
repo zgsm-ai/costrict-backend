@@ -3,7 +3,9 @@ package logic
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/golang/mock/gomock"
 	"github.com/prometheus/client_golang/prometheus"
@@ -285,4 +287,134 @@ func TestChatCompletionLogic_ChatCompletion_StreamingRequest(t *testing.T) {
 	// Verify response write attempt
 	assert.Greater(t, len(testWriter.data), 0, "Expected response attempt data")
 	assert.True(t, testWriter.flushed, "Expected response flush attempt")
+}
+
+func TestChatCompletionLogic_ErrorClassification_BadRequestDoesNotRetryButCanDegrade(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hello"}}, &mockResponseWriter{})
+	err := &types.APIError{
+		Code:       types.ErrCodeModelServiceUnavailable,
+		Message:    "downstream bad request: missing prompt",
+		Success:    false,
+		StatusCode: http.StatusBadRequest,
+		Type:       string(types.ErrServerModel),
+	}
+
+	assert.False(t, logic.isSameModelRetryableError(err))
+	assert.True(t, logic.isDegradationSwitchableError(err))
+}
+
+func TestChatCompletionLogic_ErrorClassification_EmptyMessageBadRequestDoesNotDegrade(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hello"}}, &mockResponseWriter{})
+	err := types.NewEmptyMessageContentError()
+
+	assert.False(t, logic.isSameModelRetryableError(err))
+	assert.False(t, logic.isDegradationSwitchableError(err))
+}
+
+func TestChatCompletionLogic_ErrorClassification_UnauthorizedDoesNotDegrade(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hello"}}, &mockResponseWriter{})
+	err := &types.APIError{
+		Code:       types.ErrCodeUnauthorized,
+		Message:    types.ErrMsgUnauthorized,
+		Success:    false,
+		StatusCode: http.StatusUnauthorized,
+		Type:       string(types.ErrServerModel),
+	}
+
+	assert.False(t, logic.isSameModelRetryableError(err))
+	assert.False(t, logic.isDegradationSwitchableError(err))
+}
+
+func TestChatCompletionLogic_ErrorClassification_TooManyRequestsDoesNotRetryButCanDegrade(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hello"}}, &mockResponseWriter{})
+	err := &types.APIError{
+		Code:       types.ErrCodeTooManyRequests,
+		Message:    types.ErrMsgTooManyRequests,
+		Success:    false,
+		StatusCode: http.StatusTooManyRequests,
+		Type:       string(types.ErrServerModel),
+	}
+
+	assert.False(t, logic.isSameModelRetryableError(err))
+	assert.True(t, logic.isDegradationSwitchableError(err))
+}
+
+func TestChatCompletionLogic_ErrorClassification_ServerErrorRetriesAndDegrades(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hello"}}, &mockResponseWriter{})
+	err := &types.APIError{
+		Code:       types.ErrCodeModelServiceUnavailable,
+		Message:    types.ErrMsgModelServiceUnavailable,
+		Success:    false,
+		StatusCode: http.StatusInternalServerError,
+		Type:       string(types.ErrServerModel),
+	}
+
+	assert.True(t, logic.isSameModelRetryableError(err))
+	assert.True(t, logic.isDegradationSwitchableError(err))
+}
+
+func TestChatCompletionLogic_ErrorClassification_IdleTimeoutRetriesAndDegrades(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hello"}}, &mockResponseWriter{})
+	err := types.NewStreamIdleTimeoutError()
+
+	assert.True(t, logic.isSameModelRetryableError(err))
+	assert.True(t, logic.isDegradationSwitchableError(err))
+}
+
+func TestTruncateBytes_UTF8Safe(t *testing.T) {
+	assert.Equal(t, "hello", truncateBytes("hello", 100))
+	assert.Equal(t, "", truncateBytes("", 10))
+
+	s := strings.Repeat("é", 300)
+	r := truncateBytes(s, 7)
+	assert.LessOrEqual(t, len([]byte(r)), 7)
+	assert.True(t, utf8.ValidString(r), "truncated string must be valid UTF-8")
+
+	assert.Equal(t, "abc", truncateBytes("abc", 0), "max<=0 means no truncation")
+}
+
+func TestSanitizeDegradationErrorMessage_Redaction(t *testing.T) {
+	result := sanitizeDegradationErrorMessage("authorization: Bearer abcdef123456")
+	assert.NotContains(t, result, "abcdef123456")
+	assert.Contains(t, result, "[redacted]")
+
+	result = sanitizeDegradationErrorMessage("token=supersecretvalue")
+	assert.NotContains(t, result, "supersecretvalue")
+	assert.Contains(t, result, "[redacted]")
+
+	result = sanitizeDegradationErrorMessage("invalid token count: 5")
+	assert.Equal(t, "invalid token count: 5", result)
+}
+
+func TestAppendDegradationEvent_CapAndTruncation(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hi"}}, &mockResponseWriter{})
+	logic.orderedModels = []string{"m1", "m2"}
+
+	for i := 0; i < 100; i++ {
+		logic.appendDegradationEvent(model.DegradationEvent{Event: model.DegradationEventAttemptStarted, Model: "m1", ModelIndex: 0})
+	}
+
+	assert.Equal(t, maxDegradationTraceEvents, len(logic.degradationTrace))
+	assert.Equal(t, model.DegradationEventTraceTruncated, logic.degradationTrace[len(logic.degradationTrace)-1].Event)
+	assert.True(t, logic.degradationTraceFull)
+	assert.Equal(t, maxDegradationTraceEvents, logic.degradationTraceSeq)
+	for i, ev := range logic.degradationTrace {
+		assert.Equal(t, i+1, ev.Sequence, "sequences should be monotonically increasing")
+	}
+}
+
+func TestDegradationModelIndex(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hi"}}, &mockResponseWriter{})
+	logic.orderedModels = []string{"m1", "m2", "m3"}
+	assert.Equal(t, 0, logic.degradationModelIndex("m1"))
+	assert.Equal(t, 2, logic.degradationModelIndex("m3"))
+	assert.Equal(t, -1, logic.degradationModelIndex("missing"))
+}
+
+func TestAppendDegradationEvent_NoopWithoutOrderedModels(t *testing.T) {
+	logic, _ := setupTestLogic(t, &config.Config{}, nil, "auto", []types.Message{{Role: types.RoleUser, Content: "hi"}}, &mockResponseWriter{})
+	// DO NOT set orderedModels — leave it empty/nil
+
+	logic.appendDegradationEvent(model.DegradationEvent{Event: model.DegradationEventAttemptStarted, Model: "m1", ModelIndex: 0})
+	assert.Equal(t, 0, len(logic.degradationTrace))
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/prometheus/client_golang/prometheus"
@@ -484,4 +485,39 @@ type mockSuccessStrategy struct {
 func (m *mockSuccessStrategy) Name() string { return "mock-success" }
 func (m *mockSuccessStrategy) Run(_ context.Context, _ *bootstrap.ServiceContext, _ *http.Header, _ *types.ChatCompletionRequest) (string, string, []string, error) {
 	return m.selected, "", m.ordered, nil
+}
+
+func TestChatCompletionLogic_LogCompletionCopiesDegradationTrace(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	loggerMock := mocks.NewMockLoggerInterface(ctrl)
+	var capturedLog *model.ChatLog
+	loggerMock.EXPECT().LogAsync(gomock.Any(), gomock.Any()).Do(func(log *model.ChatLog, _ *http.Header) {
+		capturedLog = log
+	})
+
+	svcCtx := &bootstrap.ServiceContext{LoggerService: loggerMock}
+	req := autoRouterRequest()
+	hdr := make(http.Header)
+	identity := autoRouterIdentityNoVip()
+	logic := NewChatCompletionLogic(context.Background(), svcCtx, req, &mockResponseWriter{}, &hdr, identity)
+	logic.orderedModels = []string{"model-a", "model-b"}
+	chatLog := logic.newChatLog(time.Now())
+
+	logic.appendDegradationEvent(model.DegradationEvent{
+		Event:      model.DegradationEventAttemptFailed,
+		Model:      "model-a",
+		ModelIndex: 0,
+		Reason:     "model_call_failed",
+	})
+
+	logic.logCompletion(chatLog)
+
+	assert.NotNil(t, capturedLog)
+	assert.Len(t, capturedLog.DegradationTrace, 1)
+	assert.Equal(t, model.DegradationEventAttemptFailed, capturedLog.DegradationTrace[0].Event)
+	assert.Equal(t, "model-a", capturedLog.DegradationTrace[0].Model)
+	assert.Equal(t, 1, capturedLog.DegradationTrace[0].Sequence)
+	assert.Empty(t, capturedLog.Error)
 }
