@@ -272,7 +272,7 @@ export function renderProviderLogo(provider, application, width, margin, size, l
             }
           }}
           >
-            <a key={provider.displayName} href={getAuthUrl(application, provider, "signup")}>
+            <a key={provider.displayName} onClick={(e) => e.preventDefault()}>
               <img width={width} height={width} src={hasIdtrust ? IdtrustImg : getProviderLogoURL(provider)} alt={provider.displayName} className="provider-img" style={{margin: margin}} />
             </a>
             <span style={{

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import React, {Suspense, lazy} from "react";
-import {Button, Checkbox, Col, Divider, Form, Input, Modal, Result, Space, Spin, Tabs, message} from "antd";
+import {Button, Checkbox, Col, Divider, Form, Input, Modal, Result, Space, Spin, Tabs} from "antd";
 import {ArrowLeftOutlined, LockOutlined} from "@ant-design/icons";
 import {withRouter} from "react-router-dom";
 import * as UserWebauthnBackend from "../backend/UserWebauthnBackend";
@@ -1002,12 +1002,7 @@ class LoginPage extends React.Component {
                     return;
                   }
                   return (
-                    <span key={id} onClick={(e) => {
-                      if (!this.props.termsAccepted) {
-                        e.preventDefault();
-                        message.error(i18next.t("signup:Please accept the agreement!"));
-                      }
-                    }}>
+                    <span key={id}>
                       {
                         ProviderButton.renderProviderLogo(providerItem.provider, application, null, null, signinItem.rule, this.props.location, this.state.bindType, this.state.isFromWeb, this.state.invitationCode, this.state.invitationChecked, () => this.providerBtnCheckInvitationCode(), (e) => this.onTermsChange(e), this.props.termsAccepted)
                       }
