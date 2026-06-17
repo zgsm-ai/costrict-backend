@@ -37,10 +37,10 @@ var (
 func InitGlobalDatabase(cfg *DBConfig) (*Database, error) {
 	var err error
 	once.Do(func() {
-		dbErr := createDatabaseIfNotExists(cfg)
-		if dbErr != nil {
-			log.Fatal("unable to create database, %v", dbErr.Error())
-		}
+		// dbErr := createDatabaseIfNotExists(cfg)
+		// if dbErr != nil {
+		// 	log.Fatal("unable to create database, %v", dbErr.Error())
+		// }
 		globalDb, err = newDatabaseImpl(cfg)
 	})
 	if err != nil {
