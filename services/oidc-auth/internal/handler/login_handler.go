@@ -21,7 +21,7 @@ import (
 
 type requestQuery struct {
 	Provider      string `form:"provider"`
-	State         string `form:"state" binding:"required"`
+	State         string `form:"state"`
 	MachineCode   string `form:"machine_code"`
 	UriScheme     string `form:"uri_scheme"`
 	PluginVersion string `form:"plugin_version"`

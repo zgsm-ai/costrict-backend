@@ -40,16 +40,16 @@ server:
 providers:
   casdoor:
     # Client ID for OAuth application registration
-    clientID: ""
+    clientID: "9e2fc5d4fbcd52ef4f6f"
 
     # Client secret for OAuth application authentication
-    clientSecret: ""
+    clientSecret: "ab5d8ba28b0e6c0d6e971247cdc1deb269c9eea3"
 
     # Casdoor server base URL, for callback address
-    baseURL: ""
+    baseURL: "http://192.168.137.106:30080"
 
     # Used to obtain tokens, etc. If provided, it is used, if not provided, the baseURL is used
-    internalURL: ""
+    internalURL: "http://192.168.137.106:8000"
 
 # SMS service configuration for verification codes
 sms:
@@ -94,16 +94,16 @@ database:
   type: "postgres"  # mysql or postgres
 
   # Database server hostname or IP address
-  host: ""
+  host: "192.168.137.106"
 
   # Database server port number
-  port: 5432
+  port: 65432
 
   # Database username for authentication
-  username: ""
+  username: "postgres"
 
   # Database password for authentication
-  password: ""
+  password: "postgres"
 
   # Database name to connect to
   dbname: "auth"

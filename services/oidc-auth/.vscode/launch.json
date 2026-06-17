@@ -1,0 +1,96 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Package",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/cmd/main.go",
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "args": ["serve","--config","config/config.yaml"],
+            "buildFlags": "",
+            "console": "integratedTerminal",
+            "debugAdapter": "dlv-dap",
+            "showLog": true
+        },
+        {
+            "name": "Run Package",
+            "type": "go",
+            "request": "launch",
+            "mode": "run",
+            "program": "${workspaceFolder}/main.go",
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "args": [],
+            "buildFlags": ""
+        },
+        {
+            "name": "Debug with Args",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/main.go",
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "args": [],
+            "buildFlags": ""
+        },
+        {
+            "name": "Attach to Process",
+            "type": "go",
+            "request": "attach",
+            "mode": "local",
+            "processId": "${command:pickProcess}"
+        },
+        {
+            "name": "Launch Tests",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "args": [],
+            "buildFlags": "-v"
+        },
+        {
+            "name": "Run Tests",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "args": [],
+            "buildFlags": "-v"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Debug & Run Server",
+            "configurations": ["Debug Package"],
+            "presentation": {
+                "hidden": false,
+                "order": 1
+            }
+        },
+        {
+            "name": "Run Server",
+            "configurations": ["Run Package"],
+            "presentation": {
+                "hidden": false,
+                "order": 2
+            }
+        },
+        {
+            "name": "Debug Tests",
+            "configurations": ["Launch Tests"],
+            "presentation": {
+                "hidden": false,
+                "order": 3
+            }
+        }
+    ]
+}

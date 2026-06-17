@@ -30,14 +30,14 @@ func tokenHandler(c *gin.Context) {
 			errs.ParamNeedErr("machine_code or vscode_version").Error())
 		return
 	}
-	if query.State == "" {
-		response.JSONError(c, http.StatusBadRequest, errs.ErrBadRequestParam,
-			errs.ParamNeedErr("state").Error())
-		return
-	}
 	// if MachineCode is provided, get the token for the first time
 	// the account should have been pre-registered.
 	if query.MachineCode != "" {
+		if query.State == "" {
+			response.JSONError(c, http.StatusBadRequest, errs.ErrBadRequestParam,
+				errs.ParamNeedErr("state").Error())
+			return
+		}
 		tokenPair, code, err := firstGetToken(query.MachineCode, query.VscodeVersion, query.State)
 		if err != nil {
 			response.JSONError(c, code, errs.ErrTokenGenerate, err.Error())
