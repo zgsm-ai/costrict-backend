@@ -132,6 +132,11 @@ Log:
   LogScanIntervalSec: 60
   ClassifyModel: "deepseek-v3"
   EnableClassification: true
+  # Error log persistence: all | sampled | none.
+  # sampled keeps errorLogSampleN error logs per user per error type per window.
+  errorLogMode: sampled
+  errorLogSampleN: 1
+  errorLogSampleWindowSec: 60
 
 # Redis (optional)
 Redis:
@@ -252,6 +257,8 @@ router:
   - `LokiEndpoint`: Loki push endpoint.
   - `LogScanIntervalSec`: Scan/upload interval in seconds.
   - `ClassifyModel` / `EnableClassification`: Optional LLM-based log categorization.
+  - `errorLogMode`: Error log persistence policy: `all`, `sampled`, or `none`. Defaults to the deprecated `saveErrorLog` fallback when empty.
+  - `errorLogSampleN` / `errorLogSampleWindowSec`: Sampling parameters for `sampled` mode (default N=1, window=60s).
 - **Redis**: Optional; used by tools, router dynamic metrics, and transient statuses.
 - **router** (Model Selection Router)
   - `enabled` / `strategy`: Enable router; available strategies: `semantic` (semantic-based), `priority` (priority-based round-robin).

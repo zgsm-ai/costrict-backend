@@ -77,8 +77,11 @@ type LoggerRecordService struct {
 	deptClient     client.DepartmentInterface
 	instanceID     string
 	// enableClassification bool
-	// saveErrorLog controls whether logs with errors are saved to permanent storage
-	saveErrorLog bool
+	// errorLogMode controls how logs with errors are persisted: "all", "sampled", or "none".
+	errorLogMode string
+	// errorSampler bounds how many error logs are saved per user per error type per
+	// window; non-nil only when errorLogMode is "sampled".
+	errorSampler *ErrorLogSampler
 
 	logChan         chan *model.ChatLog
 	stopChan        chan struct{}
@@ -91,34 +94,45 @@ type LoggerRecordService struct {
 
 const metricsLocalLogPathMaxBytes = 128
 
-// NewLogRecordService creates a new logger service
-func NewLogRecordService(config config.Config) LogRecordInterface {
-	// Create temp directory under logFilePath for temporary log files
-	// tempLogDir := filepath.Join(config.Log.LogFilePath, "temp") // No longer needed
+const (
+	defaultErrorLogSampleN         = 1
+	defaultErrorLogSampleWindowSec = 60
+)
 
+// NewLogRecordService creates a new logger service
+func NewLogRecordService(cfg config.Config) LogRecordInterface {
 	instanceID := os.Getenv("HOSTNAME")
 	if instanceID == "" {
 		instanceID = fmt.Sprintf("instance-%d", rand.Intn(10000))
 	}
 
 	var deptClient client.DepartmentInterface
-	if config.DepartmentApiEndpoint != "" {
-		deptClient = client.NewDepartmentClient(config.DepartmentApiEndpoint)
+	if cfg.DepartmentApiEndpoint != "" {
+		deptClient = client.NewDepartmentClient(cfg.DepartmentApiEndpoint)
 	}
 	var metricsReporter *ChatMetricsReporter = nil
-	if config.ChatMetrics.Enabled {
-		metricsReporter = NewChatMetricsReporter(config.ChatMetrics.Url, config.ChatMetrics.Method)
+	if cfg.ChatMetrics.Enabled {
+		metricsReporter = NewChatMetricsReporter(cfg.ChatMetrics.Url, cfg.ChatMetrics.Method)
+	}
+
+	errorLogMode := cfg.Log.ResolveErrorLogMode()
+	var errorSampler *ErrorLogSampler
+	if errorLogMode == config.ErrorLogModeSampled {
+		n := cfg.Log.ErrorLogSampleN
+		if n <= 0 {
+			n = defaultErrorLogSampleN
+		}
+		windowSec := cfg.Log.ErrorLogSampleWindowSec
+		if windowSec <= 0 {
+			windowSec = defaultErrorLogSampleWindowSec
+		}
+		errorSampler = NewErrorLogSampler(n, int64(windowSec))
 	}
 
 	return &LoggerRecordService{
-		// tempLogFilePath:      tempLogDir,             // Temporary logs directory - no longer needed
-		// scanInterval:         time.Duration(config.Log.LogScanIntervalSec) * time.Second,
-		// llmConfig:            config.LLM,
-		// classifyModel:        config.Log.ClassifyModel,
-		// enableClassification: config.Log.EnableClassification,
-
-		logFilePath:     config.Log.LogFilePath, // Permanent storage directory
-		saveErrorLog:    config.Log.SaveErrorLog,
+		logFilePath:     cfg.Log.LogFilePath, // Permanent storage directory
+		errorLogMode:    errorLogMode,
+		errorSampler:    errorSampler,
 		logChan:         make(chan *model.ChatLog, 1000),
 		stopChan:        make(chan struct{}),
 		instanceID:      instanceID,
@@ -313,6 +327,37 @@ func (ls *LoggerRecordService) logSync(logs *model.ChatLog) {
 }
 */
 
+// shouldSaveErrorLog decides whether a log carrying errors should be persisted.
+// It must only be called when len(logs.Error) > 0.
+func (ls *LoggerRecordService) shouldSaveErrorLog(logs *model.ChatLog) bool {
+	switch ls.errorLogMode {
+	case config.ErrorLogModeAll:
+		return true
+	case config.ErrorLogModeSampled:
+		if ls.errorSampler == nil {
+			return true // fail-open: never silently drop when misconfigured
+		}
+		// Use the same sanitized identity the archive path uses, so an empty
+		// user name buckets under "unknown" consistently with the on-disk layout.
+		userKey := ls.sanitizeFilename(logs.Identity.UserName, "unknown")
+		return ls.errorSampler.Allow(userKey, firstErrorTypeKey(logs))
+	default: // "none" or any unexpected value
+		return false
+	}
+}
+
+// firstErrorTypeKey returns the error type of the first error entry as a string,
+// matching how metrics extract the reported error code.
+func firstErrorTypeKey(logs *model.ChatLog) string {
+	if len(logs.Error) == 0 {
+		return ""
+	}
+	for k := range logs.Error[0] {
+		return string(k)
+	}
+	return ""
+}
+
 // logDirectToStorage processes and writes a log entry directly to permanent storage
 func (ls *LoggerRecordService) logDirectToStorage(logs *model.ChatLog) {
 	ls.mu.Lock()
@@ -332,12 +377,14 @@ func (ls *LoggerRecordService) logDirectToStorage(logs *model.ChatLog) {
 	}
 
 	// Decide whether to save to permanent storage.
-	// When the log contains errors and saveErrorLog is false, skip saving.
+	// When the log contains errors, delegate to the mode-sensitive shouldSaveErrorLog.
 	var writeInfo *storage.WriteInfo
-	if len(logs.Error) > 0 && !ls.saveErrorLog {
-		logger.Info("Skipping log save.",
+	if len(logs.Error) > 0 && !ls.shouldSaveErrorLog(logs) {
+		logger.Info("Skipping error log save.",
 			zap.String("request_id", logs.Identity.RequestID),
+			zap.String("user", logs.Identity.UserName),
 			zap.Int("error_count", len(logs.Error)),
+			zap.String("error_log_mode", ls.errorLogMode),
 		)
 	} else {
 		writeInfo = ls.saveLogToPermanentStorage(logs)

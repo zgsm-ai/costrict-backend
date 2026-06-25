@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/viper"
 	"github.com/zgsm-ai/chat-rag/internal/logger"
@@ -171,4 +172,33 @@ func ApplyRouterDefaults(c *Config) {
 			logger.Info("priority router retryIntervalMs not set, using default", zap.Int("retryIntervalMs", c.Router.Priority.RetryIntervalMs))
 		}
 	}
+}
+
+// ResolveErrorLogMode normalizes the configured error log mode. The value is
+// trimmed and lowercased first. An explicit valid value wins; an empty value
+// falls back to the deprecated SaveErrorLog (true -> all, false -> none); an
+// unrecognized value logs a warning and uses the same SaveErrorLog fallback.
+func (c LogConfig) ResolveErrorLogMode() string {
+	switch strings.ToLower(strings.TrimSpace(c.ErrorLogMode)) {
+	case ErrorLogModeAll:
+		return ErrorLogModeAll
+	case ErrorLogModeSampled:
+		return ErrorLogModeSampled
+	case ErrorLogModeNone:
+		return ErrorLogModeNone
+	case "":
+		// fall through to the SaveErrorLog fallback below
+	default:
+		logger.Warn("invalid errorLogMode, falling back to saveErrorLog",
+			zap.String("errorLogMode", c.ErrorLogMode))
+	}
+	if c.SaveErrorLog {
+		return ErrorLogModeAll
+	}
+	return ErrorLogModeNone
+}
+
+// ErrorLogSamplingEnabled reports whether the resolved mode is sampled.
+func (c LogConfig) ErrorLogSamplingEnabled() bool {
+	return c.ResolveErrorLogMode() == ErrorLogModeSampled
 }

@@ -132,6 +132,11 @@ Log:
   LogScanIntervalSec: 60
   ClassifyModel: "deepseek-v3"
   EnableClassification: true
+  # 错误日志持久化策略：all | sampled | none。
+  # sampled 模式在每个时间窗内，每用户每错误类型最多保留 errorLogSampleN 条。
+  errorLogMode: sampled
+  errorLogSampleN: 1
+  errorLogSampleWindowSec: 60
 
 # Redis（可选）
 Redis:
@@ -252,6 +257,8 @@ router:
   - `LokiEndpoint`：Loki Push 端点
   - `LogScanIntervalSec`：日志扫描与上传周期
   - `ClassifyModel` / `EnableClassification`：是否使用 LLM 对日志分类
+  - `errorLogMode`：错误日志持久化策略：`all`、`sampled` 或 `none`。为空时回落至已弃用的 `saveErrorLog`
+  - `errorLogSampleN` / `errorLogSampleWindowSec`：`sampled` 模式的采样参数（默认 N=1，窗口=60s）
 - **Redis**：可选；用于工具状态、路由动态指标等
 - **router**（模型选择路由）
   - `enabled` / `strategy`：启用路由；可选策略：`semantic`（语义路由）、`priority`（优先级轮询）

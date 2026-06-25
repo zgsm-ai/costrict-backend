@@ -97,15 +97,35 @@ type LogS3Config struct {
 	SkipBucketCheck bool   `mapstructure:"skipBucketCheck" yaml:"skipBucketCheck"`
 }
 
+// Error log mode values for LogConfig.ErrorLogMode.
+const (
+	ErrorLogModeAll     = "all"
+	ErrorLogModeSampled = "sampled"
+	ErrorLogModeNone    = "none"
+)
+
 // LogConfig holds logging configuration
 type LogConfig struct {
 	LogFilePath string
 	// StorageType controls where logs are persisted: "disk" (default) or "s3"
 	StorageType string      `mapstructure:"storageType" yaml:"storageType"`
 	S3          LogS3Config `mapstructure:"s3" yaml:"s3"`
-	// SaveErrorLog controls whether logs with errors should be saved to permanent storage.
-	// When false, logs containing Error entries will be skipped for storage (metrics are still reported).
-	// When true (default), all logs are saved regardless of error presence.
+	// ErrorLogMode controls how logs containing errors are persisted:
+	//   "all"     - save every log with errors
+	//   "sampled" - keep at most ErrorLogSampleN error logs per user per error
+	//               type per window
+	//   "none"    - skip all logs with errors
+	// When empty, the deprecated SaveErrorLog is used as a fallback
+	// (true -> all, false -> none). Metrics are reported regardless of mode.
+	ErrorLogMode string `mapstructure:"errorLogMode" yaml:"errorLogMode"`
+	// ErrorLogSampleN is the max error logs kept per user per error type within
+	// each sampling window (sampled mode only). Defaults to 1 when <= 0.
+	ErrorLogSampleN int `mapstructure:"errorLogSampleN" yaml:"errorLogSampleN"`
+	// ErrorLogSampleWindowSec is the sampling window length in seconds
+	// (sampled mode only). Defaults to 60 when <= 0.
+	ErrorLogSampleWindowSec int `mapstructure:"errorLogSampleWindowSec" yaml:"errorLogSampleWindowSec"`
+	// Deprecated: superseded by ErrorLogMode. Retained as a fallback when
+	// ErrorLogMode is empty (true -> all, false -> none).
 	SaveErrorLog bool `mapstructure:"saveErrorLog" yaml:"saveErrorLog"`
 	// LogScanIntervalSec   int
 	// ClassifyModel        string

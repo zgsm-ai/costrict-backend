@@ -7,9 +7,18 @@ Log:
   LogFilePath: "logs/"
   # Storage type: "disk" (default) or "s3"
   storageType: "disk"
-  # Whether to save logs that contain errors to permanent storage.
-  # false: skip saving logs with errors (metrics are still reported).
-  # true (default): save all logs regardless of error presence.
+  # Error log persistence policy (metrics are always reported regardless):
+  #   all     - save every log that contains errors
+  #   sampled - keep at most errorLogSampleN error logs per user per error type per window
+  #   none    - skip all logs that contain errors
+  # When errorLogMode is empty, the deprecated saveErrorLog is used as a
+  # fallback (true -> all, false -> none).
+  errorLogMode: sampled
+  # Max error logs kept per user per error type within each window (sampled mode). Default 1.
+  errorLogSampleN: 1
+  # Sampling window length in seconds (sampled mode). Default 60.
+  errorLogSampleWindowSec: 60
+  # Deprecated: superseded by errorLogMode. Kept for backward compatibility.
   saveErrorLog: false
   # S3/MinIO configuration (required when storageType is "s3")
   s3:
