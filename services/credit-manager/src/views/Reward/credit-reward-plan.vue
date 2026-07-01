@@ -1,6 +1,11 @@
 <template>
     <div class="credit-reward-plan mt-10">
-        <div class="text-center text-[28px] font-semibold">{{ t('rewardPlan.title') }}</div>
+        <div
+            class="text-center font-semibold"
+            :class="isMobileLayout ? 'text-[22px]' : 'text-[28px]'"
+        >
+            {{ t('rewardPlan.title') }}
+        </div>
 
         <div class="mt-8">
             <p>
@@ -160,7 +165,7 @@
                                 <img
                                     v-if="step.image"
                                     class="mt-4 mb-10"
-                                    :class="step.imageClass"
+                                    :class="isMobileLayout ? 'w-full' : step.imageClass"
                                     :src="step.image"
                                     alt=""
                                 />
@@ -242,23 +247,28 @@
         <reward-card
             :title="t('rewardPlan.contactUsTitle')"
             :description="t('rewardPlan.contactUsDescription')"
-            class="mt-12.5 mb-35"
+            class="mt-12.5 mb-35 credit-reward-plan__footer"
             contentClass="mt-5"
         >
             <template #content>
-                <div class="flex items-center mt-4">
+                <div class="flex items-center mt-4 credit-reward-plan__qrcode">
                     <div class="flex flex-col items-center">
                         <img
                             class="w-25 h-25"
+                            :class="{ 'w-20! h-20!': isMobileLayout }"
                             src="../../assets/qrcode/official_account.png"
                             alt=""
                         />
                         <span class="mt-3">{{ t('rewardPlan.officialAccount') }}</span>
                     </div>
 
-                    <div class="flex flex-col ml-20 items-center">
+                    <div
+                        class="flex flex-col items-center"
+                        :class="isMobileLayout ? 'ml-5' : 'ml-20'"
+                    >
                         <img
                             class="w-25 h-25"
+                            :class="{ 'w-20! h-20!': isMobileLayout }"
                             src="../../assets/qrcode/communication_group.png"
                             alt=""
                         />
@@ -289,6 +299,7 @@ import { getLoginUrl } from '@/api/mods/quota.mod';
 import { useMetaTags } from '@/composables/useMetaTags';
 import { ref as refVue } from 'vue';
 import type { SocialMetaConfig } from '@/config/meta';
+import { useResponsive } from '@/views/Home/hook/useResponsive';
 
 // 为积分奖励计划页面配置特定的Open Graph标签
 const customMeta = refVue<SocialMetaConfig>({
@@ -315,6 +326,9 @@ useMetaTags(customMeta);
 
 const { t, locale } = useI18n();
 const isZh = computed(() => locale.value === 'zh');
+
+// 使用响应式布局hook，768px作为移动端断点
+const { isMobileLayout } = useResponsive(768);
 const message = useMessage();
 const route = useRoute();
 
@@ -379,6 +393,27 @@ const qaContent = computed(() => createQaContent(t, isZh.value));
     // Credit奖励计划页面样式
     width: 1105px;
     margin: auto;
+
+    // 移动端适配
+    @media (max-width: 768px) {
+        width: 100%;
+        padding: 0 16px;
+        box-sizing: border-box;
+        margin-top: 20px;
+    }
+}
+
+.credit-reward-plan__footer {
+    @media (max-width: 768px) {
+        margin-bottom: 60px;
+    }
+}
+
+.credit-reward-plan__qrcode {
+    @media (max-width: 768px) {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
 }
 
 .opertion-rule {

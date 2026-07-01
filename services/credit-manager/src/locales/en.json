@@ -99,7 +99,9 @@
         "tokens": "Tokens",
         "creditsUsed": "Credits Used",
         "package": "Package",
-        "source": "Source"
+        "source": "Source",
+        "phoneReminderTitle": "Bind your phone number to unlock a smoother experience and earn 200 extra Credits",
+        "phoneReminderAction": "Bind Now"
     },
     "common": {
         "comma": ",",
@@ -133,8 +135,8 @@
         "aboutCreditsTitle": "About Credits",
         "contactUsTitle": "Contact Us",
         "contactUsDescription": "If you have any questions, please contact us. Scan the QR code below to join the official communication group.",
-        "officialAccount": "Scan to follow official account",
-        "joinGroup": "Scan to join communication group",
+        "officialAccount": "Follow official account",
+        "joinGroup": "Join communication group",
         "copyLink": "Click to copy",
         "copyLinkHint": "Click \"Copy Link\" → share with friends, they can register with one click — quick and easy",
         "copyLoginLink": "Click to copy",
@@ -313,7 +315,18 @@
         "invoiceStatus": "Invoice Status",
         "firstRechargeDiscount": "First recharge discount",
         "totalCredits": "{credits} Credits",
-        "freeCreditsTip": "Free 500+ Credits"
+        "freeCreditsTip": "Free 500+ Credits",
+        "survey": {
+            "prefix": "Complete a valid survey and get at least",
+            "credits": "400 Credits",
+            "extraPrefix": "High-quality feedback can earn up to ",
+            "extraAmount": "1000",
+            "extraSuffix": " extra Credits",
+            "deadlinePrefix": "Ends on ",
+            "deadlineDate": "2026.07.15",
+            "feedbackButton": "Give Feedback",
+            "detailLink": "Details"
+        }
     },
     "homePageUi": {
         "personalInfo": "Personal Information",

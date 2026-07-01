@@ -146,4 +146,15 @@ export const themeOverrides: GlobalThemeOverrides = {
         boxShadowHover: '#fff',
         boxShadowFocus: '#1770E6',
     },
+    Alert: {
+        color: 'rgba(255, 255, 255, 0.06)',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        titleTextColor: '#fff',
+        textColor: 'rgba(255, 255, 255, 0.8)',
+        iconColorWarning: '#F0A020',
+        closeColorHover: '#fff',
+        closeColorPressed: '#fff',
+        closeIconColor: 'rgba(255, 255, 255, 0.5)',
+        borderRadius: '10px',
+    },
 };

@@ -25,8 +25,60 @@
             src="../../../assets/subscription/bg_5.png"
             alt=""
         />
+        <div class="subscription-survey">
+            <div class="subscription-survey__copy flex items-center">
+                <img
+                    src="../../../assets/subscription/gift.webp"
+                    alt=""
+                />
+                <div class="flex flex-col">
+                    <div class="subscription-survey__title">
+                        {{ t('subscriptionSection.survey.prefix') }}
+                        <span class="subscription-survey__credits">{{
+                            t('subscriptionSection.survey.credits')
+                        }}</span>
+                    </div>
+                    <div class="subscription-survey__meta">
+                        <span class="subscription-survey__text">
+                            {{ t('subscriptionSection.survey.extraPrefix') }}
+                            <span class="subscription-survey__highlight">{{
+                                t('subscriptionSection.survey.extraAmount')
+                            }}</span>
+                            {{ t('subscriptionSection.survey.extraSuffix') }}
+                        </span>
+                        <span
+                            class="subscription-survey__divider"
+                            aria-hidden="true"
+                        ></span>
+                        <span class="subscription-survey__text">
+                            {{ t('subscriptionSection.survey.deadlinePrefix') }}
+                            <span class="subscription-survey__highlight">{{
+                                t('subscriptionSection.survey.deadlineDate')
+                            }}</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="subscription-survey__actions">
+                <button
+                    class="subscription-survey__button"
+                    type="button"
+                    @click="toSurvey"
+                >
+                    {{ t('subscriptionSection.survey.feedbackButton') }}
+                </button>
+                <button
+                    class="subscription-survey__link"
+                    type="button"
+                    @click="toSurveyDetail"
+                >
+                    {{ t('subscriptionSection.survey.detailLink') }}
+                    <span aria-hidden="true">›</span>
+                </button>
+            </div>
+        </div>
         <!-- 订阅信息 -->
-        <div class="subscription-title flex items-center">
+        <div class="subscription-title mt-4 flex items-center">
             <span class="text-base">{{ t('subscriptionSection.subscriptionTitle') }}</span>
             <span
                 class="billing-btn cursor-pointer ml-2.5"
@@ -184,6 +236,9 @@ const showInvoiceModal = ref(false);
 const currentOrder = ref<{ order_id: string; amount: number } | null>(null);
 
 const router = useRouter();
+
+const SURVEY_URL = 'https://v.wjx.cn/vm/t7BdP0M.aspx';
+const SURVEY_DETAIL_URL = 'https://mp.weixin.qq.com/s/kX8zt50Yu01a4NB6zwbn-g';
 
 // 存储API返回的配额类型数据
 const quotaTypes = ref<QuotaTypeWithMarketingRules[]>([]);
@@ -367,6 +422,14 @@ const toActivityPage = () => {
     router.push('/?tab=activity');
 };
 
+const toSurvey = () => {
+    window.open(SURVEY_URL, '_blank', 'noopener');
+};
+
+const toSurveyDetail = () => {
+    window.open(SURVEY_DETAIL_URL, '_blank', 'noopener');
+};
+
 // 加载配额类型数据
 const loadQuotaTypes = async () => {
     const { code, data } = await getQuotaTypes();
@@ -399,6 +462,126 @@ const handleInvoiceSubmitted = () => {
             -webkit-text-fill-color: transparent;
             background-clip: text;
             text-fill-color: transparent;
+        }
+    }
+
+    .subscription-survey {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px 24px;
+        padding: 16px 18px;
+        border-radius: 4px;
+        background: radial-gradient(
+                36.88% 213.56% at 34.25% -0.79%,
+                rgba(28, 149, 255, 0.46) 0%,
+                rgba(28, 149, 255, 0.18) 42%,
+                rgba(28, 149, 255, 0) 100%
+            )
+            /* warning: gradient uses a rotation that is not supported by CSS and may not behave as expected */;
+        color: rgba(255, 255, 255, 0.7);
+
+        @media (max-width: 960px) {
+            align-items: flex-start;
+            flex-direction: column;
+            justify-content: center;
+            padding: 0 14px;
+        }
+
+        &__copy {
+            min-width: 0;
+        }
+
+        &__title {
+            color: rgb(255, 255, 255);
+            font-size: 18px;
+            font-weight: 600;
+
+            @media (max-width: 960px) {
+                font-size: 16px;
+            }
+        }
+
+        &__credits {
+            color: rgb(255, 255, 255);
+        }
+
+        &__highlight {
+            color: rgba(34, 255, 208, 1);
+        }
+
+        &__meta,
+        &__actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px 24px;
+        }
+
+        &__meta {
+            margin-top: 8px;
+
+            @media (max-width: 960px) {
+                gap: 8px 12px;
+                margin-top: 6px;
+            }
+        }
+
+        &__actions {
+            flex-shrink: 0;
+
+            @media (max-width: 960px) {
+                gap: 8px 12px;
+            }
+        }
+
+        &__text {
+            min-width: 0;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.65);
+
+            @media (max-width: 960px) {
+                font-size: 13px;
+            }
+        }
+
+        &__divider {
+            width: 1px;
+            height: 19px;
+            background: rgba(255, 255, 255, 0.45);
+
+            @media (max-width: 960px) {
+                display: none;
+            }
+        }
+
+        &__button {
+            min-width: 126px;
+            height: 36px;
+            cursor: pointer;
+            border: 0;
+            border-radius: 2px;
+            background: linear-gradient(90deg, #2a7fff 0%, #00d8b7 100%);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+
+            @media (max-width: 960px) {
+                min-width: 120px;
+            }
+        }
+
+        &__link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            border: 0;
+            background: transparent;
+            color: #2a7fff;
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
         }
     }
 

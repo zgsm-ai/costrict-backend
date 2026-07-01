@@ -20,3 +20,12 @@ withDefaults(
     },
 );
 </script>
+
+<style scoped lang="less">
+.operation-card {
+    img {
+        max-width: 100%;
+        height: auto;
+    }
+}
+</style>

@@ -98,7 +98,7 @@ export default [
             successResponse({
                 giver_id: 'giver-mock-001',
                 giver_name: 'Alice',
-                giver_phone: '13800138001',
+                giver_phone: '',
                 giver_github: 'alice-github',
                 receiver_id: 'user-mock-001',
                 quota_list: [

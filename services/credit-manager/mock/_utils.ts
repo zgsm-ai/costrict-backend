@@ -3,7 +3,7 @@
  */
 
 export const successResponse = <T>(data: T) => ({
-    code: 0,
+    code: 200,
     message: 'success',
     data,
 });

@@ -6,9 +6,9 @@
             >
                 {{ t('rewardPlan.qaCard.question') }}
             </div>
-            <div class="ml-2">
+            <div class="ml-2 credit-qa-text">
                 <slot name="question">
-                    <p class="max-w-242 leading-5">{{ question }}</p>
+                    <p class="leading-5">{{ question }}</p>
                 </slot>
             </div>
         </div>
@@ -19,7 +19,7 @@
             >
                 {{ t('rewardPlan.qaCard.answer') }}
             </div>
-            <div class="ml-2 self-center max-w-242">
+            <div class="ml-2 self-center credit-qa-text">
                 <slot name="answer">
                     <template
                         v-for="(item, index) in processedAnswer"
@@ -85,3 +85,18 @@ const processedAnswer = computed(() => {
     return [];
 });
 </script>
+
+<style scoped lang="less">
+.credit-qa-text {
+    max-width: 968px;
+
+    @media (max-width: 768px) {
+        max-width: 100%;
+
+        :deep(img) {
+            max-width: 100%;
+            height: auto;
+        }
+    }
+}
+</style>

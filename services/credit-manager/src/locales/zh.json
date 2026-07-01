@@ -99,7 +99,9 @@
         "tokens": "Tokens",
         "creditsUsed": "Credits消耗",
         "package": "套餐",
-        "source": "来源"
+        "source": "来源",
+        "phoneReminderTitle": "绑定手机号，解锁更流畅的服务体验，额外获赠200 Credits",
+        "phoneReminderAction": "立即绑定"
     },
     "common": {
         "comma": "，",
@@ -315,7 +317,18 @@
         "firstRechargeDiscount": "首充优惠",
         "freeActivityTip": "参加活动可获取更多Credits",
         "totalCredits": "{credits} Credits",
-        "freeCreditsTip": "免费额度 500 Credits起"
+        "freeCreditsTip": "免费额度 500 Credits起",
+        "survey": {
+            "prefix": "填写有效问卷，保底领",
+            "credits": "400 Credits",
+            "extraPrefix": "优质建议最高追加 ",
+            "extraAmount": "1000",
+            "extraSuffix": " Credits",
+            "deadlinePrefix": "截止至 ",
+            "deadlineDate": "2026.07.15",
+            "feedbackButton": "立即参与反馈",
+            "detailLink": "查看详情"
+        }
     },
     "homePageUi": {
         "personalInfo": "个人信息",

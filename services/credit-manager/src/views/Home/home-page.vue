@@ -39,6 +39,14 @@
 
             <n-layout-content class="content-area ml-2">
                 <div class="page-content">
+                    <!-- 未绑定手机号提醒：当前不展示，保留代码以便后续恢复 -->
+                    <phone-reminder
+                        v-if="shouldShowPhoneReminder"
+                        class="mb-2"
+                        :text="t('homePage.phoneReminderTitle')"
+                        :action="t('homePage.phoneReminderAction')"
+                        @bind="bindPhone"
+                    />
                     <!-- 个人信息 -->
                     <section
                         class="info"
@@ -298,6 +306,7 @@ import SubscriptionSection from './components/subscription-section.vue';
 import UsageSection from './components/usage-section.vue';
 import ActivitySection from './components/activity-section.vue';
 import CustomDatePicker from './components/custom-date-picker.vue';
+import PhoneReminder from './components/phone-reminder.vue';
 import { useMenu, type MenuKey } from './hook/useMenu';
 import { useProfile } from './hook/useProfile';
 import { useSubscription } from './hook/useSubscription';
@@ -308,6 +317,7 @@ import usageConsumptionSection from './components/usage-consumption-section.vue'
 const { t, locale } = useI18n();
 // const router = useRouter();
 const isZh = computed(() => locale.value === 'zh');
+const shouldShowPhoneReminder = false;
 
 // 使用响应式布局hook
 const { isMobileLayout, isSmallScreen, responsiveClass } = useResponsive();

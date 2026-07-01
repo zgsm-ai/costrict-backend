@@ -25,7 +25,7 @@ export default [
                 email: 'mock@example.com',
                 githubID: 'github-mock-001',
                 githubName: 'mockuser',
-                phone: '13800138000',
+                phone: '',
                 username: 'Mock User',
                 uuid: 'user-mock-001',
                 employee_number: 'E001',
