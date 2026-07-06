@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -13,6 +15,9 @@ import (
 	"github.com/zgsm-ai/client-manager/dao"
 	"github.com/zgsm-ai/client-manager/models"
 )
+
+// idPattern matches strings consisting only of alphanumeric characters, hyphens, and underscores
+var idPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 /**
  * LogService handles business logic for log operations
@@ -293,11 +298,20 @@ func (s *LogService) rollout(ctx context.Context, args *UploadLogArgs) {
  * - Database query errors
  */
 func (s *LogService) GetLogs(ctx context.Context, clientID, fname string) (string, error) {
+	// Validate clientID: required, only alphanumeric, hyphens, and underscores allowed
 	if clientID == "" {
 		return "", &ValidationError{Field: "client_id", Message: "client_id is required"}
 	}
+	if !idPattern.MatchString(clientID) {
+		return "", &ValidationError{Field: "client_id", Message: "client_id contains invalid characters, only alphanumeric, hyphens, and underscores are allowed"}
+	}
+
+	// Validate fname: required, prevent path injection attacks
 	if fname == "" {
 		return "", &ValidationError{Field: "file_name", Message: "file_name is required"}
+	}
+	if err := validateFileName(fname); err != nil {
+		return "", err
 	}
 
 	_, _, err := s.logDAO.ListLogs(ctx, clientID, "", fname, 1, 10)
@@ -388,14 +402,73 @@ func (s *LogService) DeleteOldLogs(ctx context.Context, beforeDate string) (int6
  * - Validation errors for missing required fields
  */
 func (s *LogService) validate(args *UploadLogArgs) error {
+	// Validate ClientID: required, only alphanumeric, hyphens, and underscores allowed
 	if args.ClientID == "" {
-		return &ValidationError{Field: "client_id", Message: "client_id is required and must be a string"}
+		return &ValidationError{Field: "client_id", Message: "client_id is required"}
 	}
+	if !idPattern.MatchString(args.ClientID) {
+		return &ValidationError{Field: "client_id", Message: "client_id contains invalid characters, only alphanumeric, hyphens, and underscores are allowed"}
+	}
+
+	// Validate UserID: required, only alphanumeric, hyphens, and underscores allowed
 	if args.UserID == "" {
-		return &ValidationError{Field: "user_id", Message: "user_id is required and must be a string"}
+		return &ValidationError{Field: "user_id", Message: "user_id is required"}
 	}
+	if !idPattern.MatchString(args.UserID) {
+		return &ValidationError{Field: "user_id", Message: "user_id contains invalid characters, only alphanumeric, hyphens, and underscores are allowed"}
+	}
+
+	// Validate FileName: required, prevent path injection attacks
 	if args.FileName == "" {
-		return &ValidationError{Field: "file_name", Message: "file_name is required and must be a string"}
+		return &ValidationError{Field: "file_name", Message: "file_name is required"}
+	}
+	if err := validateFileName(args.FileName); err != nil {
+		return err
+	}
+
+	// Validate FirstLineNo: must be >= 0
+	if args.FirstLineNo < 0 {
+		return &ValidationError{Field: "first_line_no", Message: "first_line_no must be greater than or equal to 0"}
+	}
+
+	// Validate LastLineNo: must be -1 or >= FirstLineNo
+	if args.LastLineNo != -1 && args.LastLineNo < args.FirstLineNo {
+		return &ValidationError{Field: "end_line_no", Message: "end_line_no must be -1 or greater than or equal to first_line_no"}
+	}
+
+	return nil
+}
+
+/**
+ * validateFileName checks the file name for path injection attacks
+ * @param {string} name - File name to validate
+ * @returns {error} ValidationError if the name is unsafe, nil otherwise
+ * @description
+ * - Rejects paths containing ".." (parent directory traversal)
+ * - Rejects absolute paths (starting with / or \)
+ * - Rejects paths containing null bytes
+ * - Uses filepath.Clean to normalize and detect traversal attempts
+ */
+func validateFileName(name string) error {
+	// Reject null bytes
+	if strings.ContainsRune(name, 0) {
+		return &ValidationError{Field: "file_name", Message: "file_name contains null byte"}
+	}
+
+	// Reject absolute paths
+	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, "\\") {
+		return &ValidationError{Field: "file_name", Message: "file_name must not be an absolute path"}
+	}
+
+	// Reject path traversal via ".."
+	if strings.Contains(name, "..") {
+		return &ValidationError{Field: "file_name", Message: "file_name contains invalid path traversal sequence"}
+	}
+
+	// Clean the path and verify it does not escape or change unexpectedly
+	cleaned := filepath.Clean(name)
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return &ValidationError{Field: "file_name", Message: "file_name attempts path traversal"}
 	}
 
 	return nil
