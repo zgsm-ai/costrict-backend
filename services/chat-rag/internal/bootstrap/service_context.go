@@ -121,6 +121,12 @@ func (svc *ServiceContext) initializeTokenCounter() error {
 		return nil // Already set via option
 	}
 
+	if svc.Config.TokenCounter != nil && !svc.Config.TokenCounter.Enabled {
+		svc.TokenCounter = tokenizer.NewDisabledTokenCounter()
+		logger.Info("Token counter disabled by configuration")
+		return nil
+	}
+
 	counter, err := tokenizer.NewTokenCounter()
 	if err != nil {
 		logger.Error("Failed to create token counter, using fallback",

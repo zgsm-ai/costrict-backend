@@ -100,6 +100,12 @@ func MustLoadConfig(configPath string) Config {
 		logger.Info("llm retryIntervalMs not set, using default", zap.Int("retryIntervalMs", c.LLMTimeout.RetryIntervalMs))
 	}
 
+	// Token counting is disabled by default to avoid local tiktoken overhead.
+	if c != nil && c.TokenCounter == nil {
+		c.TokenCounter = &TokenCounterConfig{Enabled: false}
+		logger.Info("tokenCounter not set, using default", zap.Bool("enabled", c.TokenCounter.Enabled))
+	}
+
 	// Apply forward configuration defaults
 	if c != nil {
 		// forward.enabled default

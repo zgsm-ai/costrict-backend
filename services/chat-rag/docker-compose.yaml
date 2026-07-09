@@ -1,0 +1,9 @@
+
+services:
+  chat-rag:
+    image: ghcr.io/zgsm-sangfor/chat-rag:v1.6.1
+    volumes:
+      - ./etc:/app/etc
+      - ./logs:/app/logs
+    ports:
+      - "8888:8888"

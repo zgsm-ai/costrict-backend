@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -132,5 +134,40 @@ activities:
 	expectedEnd := time.Date(2024, 12, 31, 23, 59, 0, 0, time.Local)
 	if !activity.EndTime.Equal(expectedEnd) {
 		t.Errorf("EndTime = %v, want %v", activity.EndTime, expectedEnd)
+	}
+}
+
+func TestMustLoadConfigTokenCounterDisabled(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	yamlContent := `
+tokenCounter:
+  enabled: false
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	config := MustLoadConfig(configPath)
+	if config.TokenCounter == nil {
+		t.Fatal("TokenCounter = nil, want configured value")
+	}
+	if config.TokenCounter.Enabled {
+		t.Fatal("TokenCounter.Enabled = true, want false")
+	}
+}
+
+func TestMustLoadConfigTokenCounterDefaultDisabled(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	config := MustLoadConfig(configPath)
+	if config.TokenCounter == nil {
+		t.Fatal("TokenCounter = nil, want default value")
+	}
+	if config.TokenCounter.Enabled {
+		t.Fatal("TokenCounter.Enabled = true, want default false")
 	}
 }

@@ -40,6 +40,11 @@ type LLMTimeoutConfig struct {
 	RetryIntervalMs int `mapstructure:"retryIntervalMs" yaml:"retryIntervalMs"`
 }
 
+// TokenCounterConfig controls local token counting for logs and fallback usage.
+type TokenCounterConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+}
+
 // RedisConfig holds Redis configuration
 type RedisConfig struct {
 	Addr     string
@@ -201,6 +206,9 @@ type Config struct {
 	Redis RedisConfig
 
 	LLM LLMConfig
+
+	// TokenCounter controls local token counting for metrics/logging.
+	TokenCounter *TokenCounterConfig `mapstructure:"tokenCounter" yaml:"tokenCounter"`
 
 	// LLMTimeout holds idle timeout configuration
 	LLMTimeout LLMTimeoutConfig `mapstructure:"llmTimeout" yaml:"llmTimeout"`

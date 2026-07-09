@@ -17,7 +17,8 @@ import (
 
 // TokenCounter provides token counting functionality
 type TokenCounter struct {
-	encoder *tiktoken.Tiktoken
+	encoder  *tiktoken.Tiktoken
+	disabled bool
 }
 
 type OfflineLoader struct{}
@@ -74,8 +75,21 @@ func NewTokenCounter() (*TokenCounter, error) {
 	}, nil
 }
 
+// NewDisabledTokenCounter creates a token counter that always returns zero.
+func NewDisabledTokenCounter() *TokenCounter {
+	return &TokenCounter{disabled: true}
+}
+
+func (tc *TokenCounter) IsDisabled() bool {
+	return tc != nil && tc.disabled
+}
+
 // CountTokens counts tokens in a text string
 func (tc *TokenCounter) CountTokens(text string) int {
+	if tc.IsDisabled() {
+		return 0
+	}
+
 	if tc.encoder == nil {
 		logger.Warn("encoder is not initialized",
 			zap.String("method", "CountTokens"))
@@ -88,6 +102,10 @@ func (tc *TokenCounter) CountTokens(text string) int {
 }
 
 func (tc *TokenCounter) CountMessagesTokens(messages []types.Message) int {
+	if tc.IsDisabled() {
+		return 0
+	}
+
 	totalTokens := 0
 
 	for _, message := range messages {
@@ -107,6 +125,10 @@ func (tc *TokenCounter) CountMessagesTokens(messages []types.Message) int {
 }
 
 func (tc *TokenCounter) CountOneMessageTokens(message types.Message) int {
+	if tc.IsDisabled() {
+		return 0
+	}
+
 	totalTokens := 0
 
 	// Count tokens for role
@@ -123,6 +145,10 @@ func (tc *TokenCounter) CountOneMessageTokens(message types.Message) int {
 
 // CountJSONTokens counts tokens in a JSON object
 func (tc *TokenCounter) CountJSONTokens(data interface{}) int {
+	if tc.IsDisabled() {
+		return 0
+	}
+
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
 		return 0

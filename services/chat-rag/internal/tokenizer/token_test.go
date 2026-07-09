@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/zgsm-ai/chat-rag/internal/types"
 )
 
 func TestCountTokens(t *testing.T) {
@@ -71,6 +72,16 @@ func TestCountTokens(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestDisabledTokenCounter(t *testing.T) {
+	tokenCounter := NewDisabledTokenCounter()
+
+	assert.True(t, tokenCounter.IsDisabled())
+	assert.Equal(t, 0, tokenCounter.CountTokens("Hello world"))
+	assert.Equal(t, 0, tokenCounter.CountMessagesTokens(nil))
+	assert.Equal(t, 0, tokenCounter.CountOneMessageTokens(types.Message{Role: "user", Content: "Hello"}))
+	assert.Equal(t, 0, tokenCounter.CountJSONTokens(map[string]string{"message": "Hello world"}))
 }
 
 func TestCountTokensCustomer(t *testing.T) {
