@@ -75,6 +75,7 @@ import { useI18n } from 'vue-i18n';
 import { NProgress, NCollapse, NCollapseItem, NDataTable } from 'naive-ui';
 import type { QuotaList } from '@/api/bos/quota.bo';
 import { formatDate } from '@/utils/date';
+import { formatCredit, formatCreditFixed, safeSubtract } from '@/utils/number';
 import { withDefaultRender } from '../hook/useTableRender';
 
 const { t } = useI18n();
@@ -108,7 +109,7 @@ const percentage = computed(() => {
 });
 
 const remainingQuota = computed(() => {
-    return props.totalQuota - props.usedQuota;
+    return safeSubtract(props.totalQuota, props.usedQuota);
 });
 
 const withDefaultColumnRender = withDefaultRender<QuotaList>();
@@ -124,6 +125,8 @@ const columns = computed(() =>
         {
             title: t('homePage.creditNum'),
             key: 'amount',
+            width: 120,
+            render: (row: QuotaList) => formatCredit(row.amount),
         },
         {
             title: t('homePage.source'),
@@ -133,9 +136,7 @@ const columns = computed(() =>
 );
 
 // 方法
-const formatNumber = (num: number): string => {
-    return num.toFixed(2);
-};
+const formatNumber = (num: number): string => formatCreditFixed(num);
 </script>
 
 <style scoped lang="less">

@@ -40,8 +40,16 @@ spec:
             - name: web-port
               containerPort: {{ .Values.containerPorts.web | default 5173 }}
               protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/nginx.conf
+              subPath: nginx.conf
           resources:
             {{ toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ .Release.Name }}-nginx-config
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{ toYaml . | nindent 8 }}

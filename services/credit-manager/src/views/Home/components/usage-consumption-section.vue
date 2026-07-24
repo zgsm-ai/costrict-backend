@@ -38,6 +38,7 @@ import { useI18n } from 'vue-i18n';
 import { NDataTable, NPagination } from 'naive-ui';
 import type { UsageConsumptionRecord } from '@/api/bos/quota.bo';
 import { formatDate } from '@/utils/date';
+import { formatCredit } from '@/utils/number';
 import { withDefaultRender } from '../hook/useTableRender';
 
 const { t } = useI18n();
@@ -95,6 +96,7 @@ const columns = computed(() =>
             title: t('homePage.creditsUsed'),
             key: 'credits_used',
             width: 120,
+            render: (row: UsageConsumptionRecord) => formatCredit(row.credits_used),
         },
         {
             title: t('homePage.package'),

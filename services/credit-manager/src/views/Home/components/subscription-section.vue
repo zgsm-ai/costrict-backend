@@ -25,7 +25,7 @@
             src="../../../assets/subscription/bg_5.png"
             alt=""
         />
-        <div class="subscription-survey">
+        <div v-if="false" class="subscription-survey">
             <div class="subscription-survey__copy flex items-center">
                 <img
                     src="../../../assets/subscription/gift.webp"
