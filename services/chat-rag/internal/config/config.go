@@ -112,7 +112,8 @@ const (
 // LogConfig holds logging configuration
 type LogConfig struct {
 	LogFilePath string
-	// StorageType controls where logs are persisted: "disk" (default) or "s3"
+	// StorageType controls where logs are persisted: "none", "disk" (default), or "s3".
+	// "none" disables persistence without disabling metrics reporting.
 	StorageType string      `mapstructure:"storageType" yaml:"storageType"`
 	S3          LogS3Config `mapstructure:"s3" yaml:"s3"`
 	// ErrorLogMode controls how logs containing errors are persisted:

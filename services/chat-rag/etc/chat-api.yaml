@@ -5,7 +5,8 @@ Port: 8888
 # Logging configuration
 Log:
   LogFilePath: "logs/"
-  # Storage type: "disk" (default) or "s3"
+  # Storage type: "none" (disable persistence), "disk" (default), or "s3".
+  # Metrics and chatMetrics reporting remain active when set to "none".
   storageType: "disk"
   # Error log persistence policy (metrics are always reported regardless):
   #   all     - save every log that contains errors

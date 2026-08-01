@@ -71,11 +71,12 @@ type LoggerRecordService struct {
 	// classifyModel  string
 	// llmClient            client.LLMInterface
 
-	logFilePath    string // Permanent storage log directory path
-	storageBackend storage.StorageBackend
-	metricsService MetricsInterface
-	deptClient     client.DepartmentInterface
-	instanceID     string
+	logFilePath     string // Permanent storage log directory path
+	storageBackend  storage.StorageBackend
+	storageDisabled bool
+	metricsService  MetricsInterface
+	deptClient      client.DepartmentInterface
+	instanceID      string
 	// enableClassification bool
 	// errorLogMode controls how logs with errors are persisted: "all", "sampled", or "none".
 	errorLogMode string
@@ -131,6 +132,7 @@ func NewLogRecordService(cfg config.Config) LogRecordInterface {
 
 	return &LoggerRecordService{
 		logFilePath:     cfg.Log.LogFilePath, // Permanent storage directory
+		storageDisabled: strings.EqualFold(strings.TrimSpace(cfg.Log.StorageType), "none"),
 		errorLogMode:    errorLogMode,
 		errorSampler:    errorSampler,
 		logChan:         make(chan *model.ChatLog, 1000),
@@ -156,7 +158,7 @@ func (ls *LoggerRecordService) Start() error {
 	logger.Info("==> Start logger")
 	// Only create the base log directory for backward compatibility when no storage backend is set.
 	// When a StorageBackend is injected, directory creation (if applicable) is handled by the backend itself.
-	if ls.storageBackend == nil {
+	if !ls.storageDisabled && ls.storageBackend == nil {
 		if err := os.MkdirAll(ls.logFilePath, 0755); err != nil {
 			return fmt.Errorf("failed to create permanent log directory: %w", err)
 		}
@@ -379,7 +381,11 @@ func (ls *LoggerRecordService) logDirectToStorage(logs *model.ChatLog) {
 	// Decide whether to save to permanent storage.
 	// When the log contains errors, delegate to the mode-sensitive shouldSaveErrorLog.
 	var writeInfo *storage.WriteInfo
-	if len(logs.Error) > 0 && !ls.shouldSaveErrorLog(logs) {
+	if ls.storageDisabled {
+		logger.Debug("Log persistence disabled",
+			zap.String("request_id", logs.Identity.RequestID),
+		)
+	} else if len(logs.Error) > 0 && !ls.shouldSaveErrorLog(logs) {
 		logger.Info("Skipping error log save.",
 			zap.String("request_id", logs.Identity.RequestID),
 			zap.String("user", logs.Identity.UserName),

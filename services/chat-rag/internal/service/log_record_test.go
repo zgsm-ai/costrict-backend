@@ -1,7 +1,12 @@
 package service
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zgsm-ai/chat-rag/internal/config"
@@ -199,6 +204,27 @@ func TestNewLogRecordService_Integration_EmptyUserNameFallback(t *testing.T) {
 	}
 }
 
+func TestLoggerRecordService_StartDoesNotCreateDirectoryWhenStorageDisabled(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "disabled-logs")
+	cfg := config.Config{}
+	cfg.Log.LogFilePath = logPath
+	cfg.Log.StorageType = "none"
+
+	svc := NewLogRecordService(cfg)
+	ls, ok := svc.(*LoggerRecordService)
+	if !ok {
+		t.Fatal("NewLogRecordService did not return *LoggerRecordService")
+	}
+	if err := ls.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	ls.Stop()
+
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("expected log directory not to exist, stat error = %v", err)
+	}
+}
+
 // --- Regression tests ---
 
 func TestShouldSaveErrorLog_UnknownMode(t *testing.T) {
@@ -304,5 +330,41 @@ func TestLogDirectToStorage_SampledReportsMetricsOnDrop(t *testing.T) {
 	}
 	if store.writes != 1 {
 		t.Fatalf("expected exactly one storage write (second sampled out), got %d", store.writes)
+	}
+}
+
+func TestLogDirectToStorage_DisabledStillReportsMetricsAndChatMetrics(t *testing.T) {
+	reported := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reported <- struct{}{}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	metrics := &fakeMetrics{}
+	store := &fakeStorage{}
+	ls := &LoggerRecordService{
+		storageDisabled: true,
+		metricsReporter: NewChatMetricsReporter(server.URL, http.MethodPost),
+	}
+	ls.SetMetricsService(metrics)
+	ls.SetStorageBackend(store)
+
+	chatLog := &model.ChatLog{}
+	chatLog.Identity.RequestID = "storage-disabled-request"
+	chatLog.Identity.UserInfo = &model.UserInfo{}
+	ls.logDirectToStorage(chatLog)
+
+	if metrics.recordCalls != 1 {
+		t.Fatalf("expected RecordChatLog called once, got %d", metrics.recordCalls)
+	}
+	if store.writes != 0 {
+		t.Fatalf("expected no storage writes when storage is disabled, got %d", store.writes)
+	}
+
+	select {
+	case <-reported:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected chat metrics report when storage is disabled")
 	}
 }

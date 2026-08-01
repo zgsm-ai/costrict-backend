@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,12 +152,14 @@ func (svc *ServiceContext) initializeMetricsService() error {
 // initializeStorage creates the storage backend based on configuration.
 // Must be called before initializeLoggerService so the backend is ready for injection.
 func (svc *ServiceContext) initializeStorage() error {
-	storageType := svc.Config.Log.StorageType
+	storageType := strings.ToLower(strings.TrimSpace(svc.Config.Log.StorageType))
 	if storageType == "" {
 		storageType = "disk"
 	}
 
 	switch storageType {
+	case "none":
+		svc.StorageBackend = nil
 	case "disk":
 		svc.StorageBackend = storage.NewDiskStorage(svc.Config.Log.LogFilePath)
 	case "s3":
@@ -176,7 +179,7 @@ func (svc *ServiceContext) initializeStorage() error {
 		}
 		svc.StorageBackend = backend
 	default:
-		return fmt.Errorf("unknown storage type: %q (supported: disk, s3)", storageType)
+		return fmt.Errorf("unknown storage type: %q (supported: none, disk, s3)", storageType)
 	}
 
 	logger.Info("Storage backend initialized successfully",
