@@ -1,6 +1,9 @@
 import Cookies from 'js-cookie';
 
-const TOKEN_KEY = 'zgsmAdminToken';
+const TOKEN_KEY = 'oidcAdminToken';
+// Legacy cookie shared via parent domain (*.sangfor.com) — may carry cs-user tokens
+// that oidc-auth cannot validate. Cleared on logout to avoid stale cross-domain token.
+const LEGACY_TOKEN_KEY = 'zgsmAdminToken';
 
 export const getHashToken = () => {
     const url = new URL(window.location.href);
@@ -19,6 +22,7 @@ export const setToken = (token: string) => {
 };
 
 export const clearToken = () => {
+    Cookies.remove(LEGACY_TOKEN_KEY);
     return Cookies.remove(TOKEN_KEY);
 };
 
