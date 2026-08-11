@@ -165,8 +165,8 @@ func (s *Strategy) Run(
 
 		// success response, parse label
 		var text string
-		if len(r.Choices) > 0 {
-			text = utils.GetContentAsString(r.Choices[0].Message.Content)
+		if len(r.Response.Choices) > 0 {
+			text = utils.GetContentAsString(r.Response.Choices[0].Message.Content)
 		}
 		label := s.parseLabel(text)
 		logger.InfoC(ctx, "semantic router: analyzer response",

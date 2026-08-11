@@ -141,6 +141,9 @@ chatMetrics:
   enabled: false
   url: "http://127.0.0.1:8080/internal/indicator/api/v1/chat-indicator"
   method: "PUT"
+  # Upstream response header reported as response_metrics.upstream_trace_id.
+  # Empty disables configured upstream trace ID extraction and reporting.
+  upstreamTraceHeader: "x-oneapi-request-id"
 
 requestVerify:
   enabled: false

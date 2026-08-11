@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/zgsm-ai/chat-rag/internal/logger"
@@ -14,14 +15,16 @@ import (
 )
 
 type ChatMetricsReporter struct {
-	ReportUrl string
-	Method    string
+	ReportUrl           string
+	Method              string
+	UpstreamTraceHeader string
 }
 
-func NewChatMetricsReporter(reportUrl string, method string) *ChatMetricsReporter {
+func NewChatMetricsReporter(reportUrl string, method string, upstreamTraceHeader string) *ChatMetricsReporter {
 	return &ChatMetricsReporter{
-		ReportUrl: reportUrl,
-		Method:    method,
+		ReportUrl:           reportUrl,
+		Method:              method,
+		UpstreamTraceHeader: strings.TrimSpace(upstreamTraceHeader),
 	}
 }
 
@@ -40,6 +43,7 @@ type ResponseMetrics struct {
 	PromptTokens       int     `json:"prompt_tokens"`
 	CompletionTokens   int     `json:"completion_tokens"`
 	CacheTokens        int     `json:"cache_tokens"`
+	UpstreamTraceID    string  `json:"upstream_trace_id,omitempty"`
 	FirstTokenDuration float64 `json:"first_token_duration,omitempty"`
 	SlowChunk          int64   `json:"slow_chunk,omitempty"`
 	ChunkPerSecond     float64 `json:"chunk_per_second,omitempty"`
@@ -141,6 +145,7 @@ func (mr *ChatMetricsReporter) buildResponseMetrics(chatLog *model.ChatLog, erro
 		PromptTokens:     chatLog.Usage.PromptTokens,
 		CompletionTokens: chatLog.Usage.CompletionTokens,
 		CacheTokens:      chatLog.Usage.CachedTokens, // 缓存
+		UpstreamTraceID:  findResponseHeader(chatLog.ResponseHeaders, mr.UpstreamTraceHeader),
 	}
 
 	// 首token时长 (ms)
@@ -172,6 +177,22 @@ func (mr *ChatMetricsReporter) buildResponseMetrics(chatLog *model.ChatLog, erro
 	// }
 
 	return metrics
+}
+
+func findResponseHeader(headers []map[string]string, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+
+	for i := len(headers) - 1; i >= 0; i-- {
+		for key, value := range headers[i] {
+			if strings.EqualFold(key, name) {
+				return value
+			}
+		}
+	}
+	return ""
 }
 
 // buildLabel 构建标签

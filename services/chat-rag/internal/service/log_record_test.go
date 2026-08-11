@@ -345,7 +345,7 @@ func TestLogDirectToStorage_DisabledStillReportsMetricsAndChatMetrics(t *testing
 	store := &fakeStorage{}
 	ls := &LoggerRecordService{
 		storageDisabled: true,
-		metricsReporter: NewChatMetricsReporter(server.URL, http.MethodPost),
+		metricsReporter: NewChatMetricsReporter(server.URL, http.MethodPost, ""),
 	}
 	ls.SetMetricsService(metrics)
 	ls.SetStorageBackend(store)

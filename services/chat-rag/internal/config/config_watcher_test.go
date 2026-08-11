@@ -89,6 +89,28 @@ func TestParseFlexibleTime(t *testing.T) {
 	}
 }
 
+func TestLoadYAMLChatMetricsUpstreamTraceHeader(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "chat-api.yaml")
+	content := []byte(`
+chatMetrics:
+  enabled: true
+  url: http://metrics.example.test
+  method: PUT
+  upstreamTraceHeader: X-Custom-Trace-ID
+`)
+	if err := os.WriteFile(configPath, content, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadYAML[Config](configPath)
+	if err != nil {
+		t.Fatalf("LoadYAML() error = %v", err)
+	}
+	if cfg.ChatMetrics.UpstreamTraceHeader != "X-Custom-Trace-ID" {
+		t.Fatalf("UpstreamTraceHeader = %q, want %q", cfg.ChatMetrics.UpstreamTraceHeader, "X-Custom-Trace-ID")
+	}
+}
+
 func TestUnmarshalYAMLContent(t *testing.T) {
 	yamlContent := `
 enabled: true

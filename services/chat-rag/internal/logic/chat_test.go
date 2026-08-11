@@ -113,6 +113,66 @@ func TestChatCompletionLogic_NewChatCompletionLogic(t *testing.T) {
 	assert.Equal(t, svcCtx, logic.svcCtx)
 }
 
+func TestChatCompletionLogic_HandleResponseHeaders_ConfiguredTraceHeader(t *testing.T) {
+	writer := &mockResponseWriter{}
+	cfg := &config.Config{
+		ChatMetrics: config.ChatMetrics{UpstreamTraceHeader: "X-Custom-Trace-ID"},
+	}
+	logic, svcCtx := setupTestLogic(t, cfg, nil, "test-model", []types.Message{
+		{Role: types.RoleUser, Content: "hello"},
+	}, writer)
+	svcCtx.Config.ChatMetrics = cfg.ChatMetrics
+	chatLog := &model.ChatLog{}
+	headers := make(http.Header)
+	headers.Set("x-custom-trace-id", "trace-1")
+	headers.Set(types.HeaderOneAPIReqId, "oneapi-1")
+
+	logic.handleResponseHeaders(&headers, http.StatusOK, chatLog)
+
+	assert.Equal(t, "trace-1", responseHeaderValue(chatLog.ResponseHeaders, "X-Custom-Trace-ID"))
+	assert.Equal(t, "oneapi-1", responseHeaderValue(chatLog.ResponseHeaders, types.HeaderOneAPIReqId))
+	assert.Empty(t, writer.Header().Get("X-Custom-Trace-ID"), "configured trace header must not be forwarded automatically")
+	assert.Equal(t, "oneapi-1", writer.Header().Get(types.HeaderOneAPIReqId))
+
+	headers.Set("x-custom-trace-id", "trace-2")
+	logic.handleResponseHeaders(&headers, http.StatusOK, chatLog)
+
+	assert.Equal(t, "trace-2", responseHeaderValue(chatLog.ResponseHeaders, "X-Custom-Trace-ID"))
+	assert.Len(t, chatLog.ResponseHeaders, 2, "capturing the same headers again must update rather than append")
+}
+
+func TestChatCompletionLogic_HandleResponseHeaders_ErrorResponseNotForwarded(t *testing.T) {
+	writer := &mockResponseWriter{}
+	cfg := &config.Config{
+		ChatMetrics: config.ChatMetrics{UpstreamTraceHeader: "x-error-trace-id"},
+	}
+	logic, svcCtx := setupTestLogic(t, cfg, nil, "test-model", []types.Message{
+		{Role: types.RoleUser, Content: "hello"},
+	}, writer)
+	svcCtx.Config.ChatMetrics = cfg.ChatMetrics
+	chatLog := &model.ChatLog{}
+	headers := make(http.Header)
+	headers.Set("x-error-trace-id", "error-trace")
+	headers.Set(types.HeaderOneAPIReqId, "oneapi-error")
+
+	logic.handleResponseHeaders(&headers, http.StatusBadGateway, chatLog)
+
+	assert.Equal(t, "error-trace", responseHeaderValue(chatLog.ResponseHeaders, "x-error-trace-id"))
+	assert.Equal(t, "oneapi-error", responseHeaderValue(chatLog.ResponseHeaders, types.HeaderOneAPIReqId))
+	assert.Empty(t, writer.Header().Get(types.HeaderOneAPIReqId))
+}
+
+func responseHeaderValue(headers []map[string]string, name string) string {
+	for _, item := range headers {
+		for key, value := range item {
+			if strings.EqualFold(key, name) {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
 // TestLLMClientMock tests LLMClient mock
 func TestLLMClientMock(t *testing.T) {
 	mock := &client.LLMClient{}

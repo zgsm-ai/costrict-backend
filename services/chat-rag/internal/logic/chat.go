@@ -260,7 +260,7 @@ func (l *ChatCompletionLogic) ChatCompletion() (resp *types.ChatCompletionRespon
 		logger.InfoC(l.ctx, "degradation: attempting ordered models",
 			zap.Strings("ordered", l.orderedModels),
 		)
-		resp, derr := l.callWithDegradation(l.request.LLMRequestParams, idleTracker)
+		resp, derr := l.callWithDegradation(l.request.LLMRequestParams, idleTracker, chatLog)
 		if derr != nil {
 			chatLog.AddError(types.ErrApiError, derr)
 			return nil, derr
@@ -269,7 +269,7 @@ func (l *ChatCompletionLogic) ChatCompletion() (resp *types.ChatCompletionRespon
 	} else {
 		// Fallback to single model with retry
 		var err2 error
-		response, err2 = l.callModelWithRetry(l.request.Model, l.request.LLMRequestParams, idleTracker)
+		response, err2 = l.callModelWithRetry(l.request.Model, l.request.LLMRequestParams, chatLog, idleTracker)
 		if err2 != nil {
 			if l.isContextLengthError(err2) {
 				logger.ErrorC(l.ctx, "Input context too long, exceeded limit.", zap.Error(err2))
@@ -670,7 +670,12 @@ func (l *ChatCompletionLogic) processStream(
 	}()
 
 	err := llmClient.ChatLLMWithMessagesStreamRaw(timerCtx, l.request.LLMRequestParams, idleTimer, func(llmResp client.LLMResponse) error {
-		l.handleResonseHeaders(llmResp.Header, types.ResponseHeadersToForward, chatLog)
+		if llmResp.HeaderOnly || llmResp.StatusCode == 0 {
+			l.handleResponseHeaders(llmResp.Header, llmResp.StatusCode, chatLog)
+		}
+		if llmResp.HeaderOnly {
+			return nil
+		}
 
 		return l.handleStreamChunk(ctx, flusher, llmResp.ResonseLine, state, remainingDepth, chatLog, idleTimer)
 	})
@@ -693,21 +698,81 @@ func (l *ChatCompletionLogic) processStream(
 	return state.toolDetected, err
 }
 
-// handleResonseHeaders Set the specified request header to the response
-func (l *ChatCompletionLogic) handleResonseHeaders(header *http.Header, requiredHeaders []string, chatLog *model.ChatLog) {
-	for _, headerName := range requiredHeaders {
-		if headerValue := header.Get(headerName); headerValue != "" {
-			if l.writer.Header().Get(headerName) != "" {
-				continue
-			}
+func (l *ChatCompletionLogic) handleResponseHeaders(header *http.Header, statusCode int, chatLog *model.ChatLog) {
+	if header == nil || chatLog == nil {
+		return
+	}
 
-			l.writer.Header().Set(headerName, headerValue)
+	l.captureResponseHeaders(header, l.responseHeadersToCapture(), chatLog)
+	if statusCode == 0 || statusCode == http.StatusOK {
+		l.forwardResponseHeaders(header, types.ResponseHeadersToForward)
+	}
+}
+
+func (l *ChatCompletionLogic) responseHeadersToCapture() []string {
+	headers := append([]string(nil), types.ResponseHeadersToForward...)
+	traceHeader := strings.TrimSpace(l.svcCtx.Config.ChatMetrics.UpstreamTraceHeader)
+	if traceHeader == "" {
+		return headers
+	}
+
+	for _, headerName := range headers {
+		if strings.EqualFold(headerName, traceHeader) {
+			return headers
+		}
+	}
+	return append(headers, traceHeader)
+}
+
+func (l *ChatCompletionLogic) captureResponseHeaders(header *http.Header, requiredHeaders []string, chatLog *model.ChatLog) {
+	for _, headerName := range requiredHeaders {
+		headerValue := header.Get(headerName)
+		if headerValue == "" {
+			continue
+		}
+
+		found := false
+		changed := false
+		for _, savedHeader := range chatLog.ResponseHeaders {
+			for savedName := range savedHeader {
+				if strings.EqualFold(savedName, headerName) {
+					found = true
+					if savedHeader[savedName] != headerValue {
+						savedHeader[savedName] = headerValue
+						changed = true
+					}
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
 			chatLog.ResponseHeaders = append(
 				chatLog.ResponseHeaders,
 				map[string]string{headerName: headerValue},
 			)
-			logger.InfoC(l.ctx, "Response header setted",
-				zap.String("header", headerName), zap.String("value", headerValue))
+			changed = true
+		}
+
+		if changed {
+			logger.InfoC(l.ctx, "Upstream response header captured",
+				zap.String("header", headerName))
+		}
+	}
+}
+
+func (l *ChatCompletionLogic) forwardResponseHeaders(header *http.Header, requiredHeaders []string) {
+	if l.writer == nil {
+		return
+	}
+
+	for _, headerName := range requiredHeaders {
+		if headerValue := header.Get(headerName); headerValue != "" && l.writer.Header().Get(headerName) == "" {
+			l.writer.Header().Set(headerName, headerValue)
+			logger.InfoC(l.ctx, "Upstream response header forwarded",
+				zap.String("header", headerName))
 		}
 	}
 }
@@ -1116,7 +1181,12 @@ func (l *ChatCompletionLogic) degradationModelIndex(modelName string) int {
 	return -1
 }
 
-func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.LLMRequestParams, idleTrackerOpt ...*timeout.IdleTracker) (types.ChatCompletionResponse, error) {
+func (l *ChatCompletionLogic) callModelWithRetry(
+	modelName string,
+	params types.LLMRequestParams,
+	chatLog *model.ChatLog,
+	idleTrackerOpt ...*timeout.IdleTracker,
+) (types.ChatCompletionResponse, error) {
 	nilResp := types.ChatCompletionResponse{}
 
 	// Get config based on mode
@@ -1158,9 +1228,13 @@ func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.
 
 		// Use the shared idle tracker instead of creating a new one
 		timerCtx, timerCancel, idleTimer := timeout.NewIdleTimer(l.ctx, idleTimeout, sharedTracker)
-		resp, err := llmClient.ChatLLMWithMessagesRaw(timerCtx, params, idleTimer)
+		upstreamResp, err := llmClient.ChatLLMWithMessagesRaw(timerCtx, params, idleTimer)
 		idleTimer.Stop()
 		timerCancel()
+		if upstreamResp.StatusCode != 0 {
+			headers := upstreamResp.Header
+			l.handleResponseHeaders(&headers, upstreamResp.StatusCode, chatLog)
+		}
 		if err == nil {
 			l.request.Model = modelName
 			if l.writer != nil {
@@ -1176,7 +1250,7 @@ func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.
 				ElapsedMs:  time.Since(attemptStart).Milliseconds(),
 				Reason:     "model_call_succeeded",
 			})
-			return resp, nil
+			return upstreamResp.Response, nil
 		}
 
 		lastErr = err
@@ -1244,7 +1318,11 @@ func (l *ChatCompletionLogic) callModelWithRetry(modelName string, params types.
 
 // callWithDegradation attempts models in l.orderedModels with idle timeout control.
 // Retry the same model once (after 5s sleep) on timeout or 5xx errors; otherwise move to next.
-func (l *ChatCompletionLogic) callWithDegradation(params types.LLMRequestParams, idleTracker *timeout.IdleTracker) (types.ChatCompletionResponse, error) {
+func (l *ChatCompletionLogic) callWithDegradation(
+	params types.LLMRequestParams,
+	idleTracker *timeout.IdleTracker,
+	chatLog *model.ChatLog,
+) (types.ChatCompletionResponse, error) {
 	nilResp := types.ChatCompletionResponse{}
 	if len(l.orderedModels) == 0 {
 		return nilResp, fmt.Errorf("degradation: ordered models is empty")
@@ -1280,7 +1358,7 @@ func (l *ChatCompletionLogic) callWithDegradation(params types.LLMRequestParams,
 			zap.String("model", modelName),
 		)
 
-		resp, err := l.callModelWithRetry(modelName, params, idleTracker)
+		resp, err := l.callModelWithRetry(modelName, params, chatLog, idleTracker)
 		if err == nil {
 			logger.InfoC(l.ctx, "degradation: model succeeded", zap.String("model", modelName))
 			return resp, nil
@@ -1544,7 +1622,12 @@ func (l *ChatCompletionLogic) handleRawModeStream(
 
 	err := llmClient.ChatLLMWithMessagesStreamRaw(timerCtx, l.request.LLMRequestParams, idleTimer, func(llmResp client.LLMResponse) error {
 		// Handle response headers
-		l.handleResonseHeaders(llmResp.Header, types.ResponseHeadersToForward, chatLog)
+		if llmResp.HeaderOnly || llmResp.StatusCode == 0 {
+			l.handleResponseHeaders(llmResp.Header, llmResp.StatusCode, chatLog)
+		}
+		if llmResp.HeaderOnly {
+			return nil
+		}
 
 		// Direct pass through response line to client
 		if llmResp.ResonseLine != "" {

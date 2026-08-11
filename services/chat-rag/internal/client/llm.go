@@ -55,7 +55,7 @@ type LLMInterface interface {
 	// ChatLLMWithMessagesStreamRaw directly calls the API using HTTP client to get raw streaming response
 	ChatLLMWithMessagesStreamRaw(ctx context.Context, params types.LLMRequestParams, idleTimer *timeout.IdleTimer, callback func(LLMResponse) error) error
 	//ChatLLMWithMessagesRaw directly calls the API using HTTP client to get raw non-streaming response
-	ChatLLMWithMessagesRaw(ctx context.Context, params types.LLMRequestParams, idleTimer *timeout.IdleTimer) (types.ChatCompletionResponse, error)
+	ChatLLMWithMessagesRaw(ctx context.Context, params types.LLMRequestParams, idleTimer *timeout.IdleTimer) (LLMCompletionResponse, error)
 	// SetTools sets the tools for the LLM client
 	SetTools(tools []types.Function)
 }
@@ -63,6 +63,15 @@ type LLMInterface interface {
 type LLMResponse struct {
 	Header      *http.Header
 	ResonseLine string
+	StatusCode  int
+	HeaderOnly  bool
+}
+
+// LLMCompletionResponse carries the decoded completion together with upstream HTTP metadata.
+type LLMCompletionResponse struct {
+	Response   types.ChatCompletionResponse
+	Header     http.Header
+	StatusCode int
 }
 
 // LLMClient handles communication with language models
@@ -147,12 +156,12 @@ func (c *LLMClient) GenerateContent(ctx context.Context, systemPrompt string, us
 	}
 
 	// Check if there are any choices in the response
-	if len(result.Choices) == 0 {
+	if len(result.Response.Choices) == 0 {
 		return "", fmt.Errorf("no content generated")
 	}
 
 	// Extract content from the first choice's message
-	content := utils.GetContentAsString(result.Choices[0].Message.Content)
+	content := utils.GetContentAsString(result.Response.Choices[0].Message.Content)
 	return content, nil
 }
 
@@ -271,13 +280,22 @@ func (c *LLMClient) ChatLLMWithMessagesStreamRaw(ctx context.Context, params typ
 	logger.InfoC(ctx, "Received response headers from LLM",
 		zap.Duration("firstByteLatency", firstByteLatency))
 
+	headers := resp.Header.Clone()
+	if err := callback(LLMResponse{
+		Header:     &headers,
+		StatusCode: resp.StatusCode,
+		HeaderOnly: true,
+	}); err != nil {
+		return fmt.Errorf("response header callback error: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return c.handleAPIError(resp, "LLMClient get straming error response")
 	}
 
-	headers := resp.Header
 	llmResp := LLMResponse{
-		Header: &headers,
+		Header:     &headers,
+		StatusCode: resp.StatusCode,
 	}
 
 	var chunkTimeChan chan float32 = nil
@@ -386,7 +404,7 @@ func (c *LLMClient) ChatLLMWithMessagesStreamRaw(ctx context.Context, params typ
 }
 
 // ChatLLMWithMessagesRaw directly calls the API using HTTP client to get raw non-streaming response
-func (c *LLMClient) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLMRequestParams, idleTimer *timeout.IdleTimer) (types.ChatCompletionResponse, error) {
+func (c *LLMClient) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLMRequestParams, idleTimer *timeout.IdleTimer) (LLMCompletionResponse, error) {
 	// Prepare request data structure
 	if params.Extra == nil {
 		params.Extra = make(map[string]any)
@@ -398,19 +416,19 @@ func (c *LLMClient) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLM
 		LLMRequestParams: params,
 	}
 
-	nil_resp := types.ChatCompletionResponse{}
+	nilResp := LLMCompletionResponse{}
 
 	// Log request data for debugging
 	jsonData, err := json.Marshal(requestPayload)
 	if err != nil {
-		return nil_resp, fmt.Errorf("failed to marshal request payload: %w", err)
+		return nilResp, fmt.Errorf("failed to marshal request payload: %w", err)
 	}
 
 	// Create request
 	reader := strings.NewReader(string(jsonData))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, reader)
 	if err != nil {
-		return nil_resp, fmt.Errorf("failed to create request: %w", err)
+		return nilResp, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set request headers
@@ -430,20 +448,24 @@ func (c *LLMClient) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLM
 		// Check if it's a timeout error
 		if ctx.Err() != nil && idleTimer != nil && idleTimer.IsTimedOut() {
 			if idleTimer.Reason() == timeout.IdleTimeoutReasonTotal {
-				return nil_resp, types.NewTotalIdleTimeoutError()
+				return nilResp, types.NewTotalIdleTimeoutError()
 			}
-			return nil_resp, types.NewStreamIdleTimeoutError()
+			return nilResp, types.NewStreamIdleTimeoutError()
 		}
 
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			logger.WarnC(ctx, "Context canceled connecting to LLM service", zap.Error(err))
-			return nil_resp, context.Canceled
+			return nilResp, context.Canceled
 		}
 
 		logger.ErrorC(ctx, "Failed to connect to LLM service", zap.Error(err))
-		return nil_resp, types.NewModelServiceUnavailableError()
+		return nilResp, types.NewModelServiceUnavailableError()
 	}
 	defer resp.Body.Close()
+	result := LLMCompletionResponse{
+		Header:     resp.Header.Clone(),
+		StatusCode: resp.StatusCode,
+	}
 
 	// Reset idle timer after receiving response headers
 	firstByteLatency := time.Since(requestStart)
@@ -456,7 +478,7 @@ func (c *LLMClient) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLM
 	// Check response status code
 	if resp.StatusCode != http.StatusOK {
 		err := c.handleAPIError(resp, "LLMClient get error response")
-		return nil_resp, err
+		return result, err
 	}
 
 	// Read response body in chunks, resetting idle timer
@@ -480,24 +502,25 @@ func (c *LLMClient) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLM
 			// Check if it's a timeout error
 			if ctx.Err() != nil && idleTimer != nil && idleTimer.IsTimedOut() {
 				if idleTimer.Reason() == timeout.IdleTimeoutReasonTotal {
-					return nil_resp, types.NewTotalIdleTimeoutError()
+					return result, types.NewTotalIdleTimeoutError()
 				}
-				return nil_resp, types.NewStreamIdleTimeoutError()
+				return result, types.NewStreamIdleTimeoutError()
 			}
 
 			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-				return nil_resp, context.Canceled
+				return result, context.Canceled
 			}
 
-			return nil_resp, fmt.Errorf("failed to read response body: %w", err)
+			return result, fmt.Errorf("failed to read response body: %w", err)
 		}
 	}
 
-	var result types.ChatCompletionResponse
-	if err := json.Unmarshal(bodyData, &result); err != nil {
+	var completion types.ChatCompletionResponse
+	if err := json.Unmarshal(bodyData, &completion); err != nil {
 		bodyStr := string(bodyData)
-		return nil_resp, fmt.Errorf("failed to parse response (invalid JSON? body: %s)\nerror: %w", bodyStr, err)
+		return result, fmt.Errorf("failed to parse response (invalid JSON? body: %s)\nerror: %w", bodyStr, err)
 	}
 
+	result.Response = completion
 	return result, nil
 }

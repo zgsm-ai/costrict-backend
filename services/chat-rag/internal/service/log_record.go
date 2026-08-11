@@ -113,7 +113,11 @@ func NewLogRecordService(cfg config.Config) LogRecordInterface {
 	}
 	var metricsReporter *ChatMetricsReporter = nil
 	if cfg.ChatMetrics.Enabled {
-		metricsReporter = NewChatMetricsReporter(cfg.ChatMetrics.Url, cfg.ChatMetrics.Method)
+		metricsReporter = NewChatMetricsReporter(
+			cfg.ChatMetrics.Url,
+			cfg.ChatMetrics.Method,
+			cfg.ChatMetrics.UpstreamTraceHeader,
+		)
 	}
 
 	errorLogMode := cfg.Log.ResolveErrorLogMode()

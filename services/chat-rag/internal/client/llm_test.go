@@ -48,6 +48,118 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestLLMClient_NonStreamingResponseMetadata(t *testing.T) {
+	headers := make(http.Header)
+	client := &LLMClient{
+		modelName: "test-model",
+		endpoint:  "http://mock-endpoint/v1/chat/completions",
+		headers:   &headers,
+		httpClient: &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			responseHeaders := make(http.Header)
+			responseHeaders.Set("X-Custom-Trace-ID", "trace-success")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     responseHeaders,
+				Body: io.NopCloser(bytes.NewBufferString(`{
+					"id":"response-id",
+					"choices":[],
+					"usage":{}
+				}`)),
+			}, nil
+		})},
+	}
+
+	result, err := client.ChatLLMWithMessagesRaw(context.Background(), types.LLMRequestParams{}, nil)
+	if err != nil {
+		t.Fatalf("ChatLLMWithMessagesRaw() error = %v", err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", result.StatusCode, http.StatusOK)
+	}
+	if got := result.Header.Get("x-custom-trace-id"); got != "trace-success" {
+		t.Fatalf("trace header = %q, want %q", got, "trace-success")
+	}
+	if result.Response.Id != "response-id" {
+		t.Fatalf("response ID = %q, want %q", result.Response.Id, "response-id")
+	}
+}
+
+func TestLLMClient_NonStreamingErrorResponseMetadata(t *testing.T) {
+	headers := make(http.Header)
+	client := &LLMClient{
+		modelName: "test-model",
+		endpoint:  "http://mock-endpoint/v1/chat/completions",
+		headers:   &headers,
+		httpClient: &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			responseHeaders := make(http.Header)
+			responseHeaders.Set("X-Custom-Trace-ID", "trace-error")
+			return &http.Response{
+				StatusCode: http.StatusBadGateway,
+				Header:     responseHeaders,
+				Body:       io.NopCloser(bytes.NewBufferString(`{"error":{"message":"upstream failed"}}`)),
+			}, nil
+		})},
+	}
+
+	result, err := client.ChatLLMWithMessagesRaw(context.Background(), types.LLMRequestParams{}, nil)
+	if err == nil {
+		t.Fatal("ChatLLMWithMessagesRaw() error = nil, want upstream error")
+	}
+	if result.StatusCode != http.StatusBadGateway {
+		t.Fatalf("StatusCode = %d, want %d", result.StatusCode, http.StatusBadGateway)
+	}
+	if got := result.Header.Get("x-custom-trace-id"); got != "trace-error" {
+		t.Fatalf("trace header = %q, want %q", got, "trace-error")
+	}
+}
+
+func TestLLMClient_StreamingErrorResponseHeaders(t *testing.T) {
+	headers := make(http.Header)
+	client := &LLMClient{
+		modelName: "test-model",
+		endpoint:  "http://mock-endpoint/v1/chat/completions",
+		headers:   &headers,
+		httpClient: &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			responseHeaders := make(http.Header)
+			responseHeaders.Set("X-Custom-Trace-ID", "trace-error")
+			return &http.Response{
+				StatusCode: http.StatusBadGateway,
+				Header:     responseHeaders,
+				Body:       io.NopCloser(bytes.NewBufferString(`{"error":{"message":"upstream failed"}}`)),
+			}, nil
+		})},
+	}
+
+	var callbackResponse LLMResponse
+	err := client.ChatLLMWithMessagesStreamRaw(
+		context.Background(),
+		types.LLMRequestParams{},
+		nil,
+		func(response LLMResponse) error {
+			callbackResponse = response
+			return nil
+		},
+	)
+	if err == nil {
+		t.Fatal("ChatLLMWithMessagesStreamRaw() error = nil, want upstream error")
+	}
+	if !callbackResponse.HeaderOnly {
+		t.Fatal("expected a header-only callback before the upstream error")
+	}
+	if callbackResponse.StatusCode != http.StatusBadGateway {
+		t.Fatalf("StatusCode = %d, want %d", callbackResponse.StatusCode, http.StatusBadGateway)
+	}
+	if got := callbackResponse.Header.Get("x-custom-trace-id"); got != "trace-error" {
+		t.Fatalf("trace header = %q, want %q", got, "trace-error")
+	}
+}
+
 func TestLLMClient_ChatLLMWithMessages_FormatCheck(t *testing.T) {
 	// Simple message format validation without creating an actual client
 	messages := []struct {

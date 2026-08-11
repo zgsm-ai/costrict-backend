@@ -9,9 +9,9 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	client "github.com/zgsm-ai/chat-rag/internal/client"
 	timeout "github.com/zgsm-ai/chat-rag/internal/timeout"
 	types "github.com/zgsm-ai/chat-rag/internal/types"
-	client "github.com/zgsm-ai/chat-rag/internal/client"
 )
 
 // MockLLMClientInterface is a mock of LLMClientInterface interface.
@@ -38,10 +38,10 @@ func (m *MockLLMClientInterface) EXPECT() *MockLLMClientInterfaceMockRecorder {
 }
 
 // ChatLLMWithMessagesRaw mocks base method.
-func (m *MockLLMClientInterface) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLMRequestParams, idleTimer *timeout.IdleTimer) (types.ChatCompletionResponse, error) {
+func (m *MockLLMClientInterface) ChatLLMWithMessagesRaw(ctx context.Context, params types.LLMRequestParams, idleTimer *timeout.IdleTimer) (client.LLMCompletionResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ChatLLMWithMessagesRaw", ctx, params, idleTimer)
-	ret0, _ := ret[0].(types.ChatCompletionResponse)
+	ret0, _ := ret[0].(client.LLMCompletionResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
