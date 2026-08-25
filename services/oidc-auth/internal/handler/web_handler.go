@@ -206,22 +206,55 @@ func (s *Server) getUserInviteCodeHandler(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Get user info by access token
-	user, _, err := utils.GetUserByTokenHash(ctx, token, "access_token_hash")
+	// Authenticate via the cs-user chain (same identity source as /manager/userinfo).
+	// The previous local device-token lookup could not match after a token refresh
+	// or a re-login replaced the stored device hashes (the web device MachineCode is
+	// stable per user), leaving valid cs-user sessions unable to fetch their code.
+	authUser, err := fetchUserInfoFromCsUser(ctx, token)
 	if err != nil {
-		response.JSONError(c, http.StatusUnauthorized, errs.ErrUserNotFound, "user not found: "+err.Error())
+		status, codeMsg := mapUserCenterError(err)
+		response.HandleError(c, status, codeMsg,
+			fmt.Errorf("%s: %v", errs.ErrInfoQueryUserInfo, err))
+		return
+	}
+
+	// Invite codes live in the local DB keyed by the universal_id.
+	user, err := repository.GetDB().GetUserByField(ctx, "id", authUser.ID)
+	if err != nil {
+		response.JSONError(c, http.StatusInternalServerError, errs.ErrUpdateInfo, "failed to load user: "+err.Error())
 		return
 	}
 
 	if user == nil {
-		response.JSONError(c, http.StatusUnauthorized, errs.ErrUserNotFound, "user not found")
-		return
+		// No local record (the identity exists only in cs-user): seed a minimal
+		// row so the generated invite code has a place to persist.
+		user = authUser
+		if user.UserCode == "" {
+			user.UserCode, err = utils.GenerateRandomString(16)
+			if err != nil {
+				response.JSONError(c, http.StatusInternalServerError, errs.ErrUpdateInfo, "failed to create user: "+err.Error())
+				return
+			}
+		}
+
+		// Concurrent first-time fetches race on row creation (Upsert's create
+		// path has no ON CONFLICT handling): if the create lost, another request
+		// just seeded the row, so fall through to the atomic claim below.
+		if err := repository.GetDB().Upsert(ctx, user, "id", user.ID); err != nil {
+			if existing, getErr := repository.GetDB().GetUserByField(ctx, "id", user.ID); getErr != nil || existing == nil {
+				response.JSONError(c, http.StatusInternalServerError, errs.ErrUpdateInfo, "failed to create user: "+err.Error())
+				return
+			}
+		}
 	}
 
-	// Generate invite code if user doesn't have one
+	// Claim the invite code atomically when the row has none. Upsert alone is
+	// not enough: its update branch can silently overwrite a code that another
+	// request just committed, so the invite-code write is a single conditional
+	// UPDATE (ClaimInviteCode) where the first writer wins.
 	if user.InviteCode == "" {
 		inviteCode, err := utils.GenerateUniqueInviteCode(ctx)
 		if err != nil {
@@ -229,16 +262,19 @@ func (s *Server) getUserInviteCodeHandler(c *gin.Context) {
 			return
 		}
 
-		// Update user's invite code
-		user.InviteCode = inviteCode
-		user.UpdatedAt = time.Now()
-
-		// Update user record with new invite code
-		err = repository.GetDB().Upsert(ctx, user, "id", user.ID)
-		if err != nil {
+		if err := repository.GetDB().ClaimInviteCode(ctx, user.ID, inviteCode); err != nil {
 			response.JSONError(c, http.StatusInternalServerError, errs.ErrUpdateInfo, "failed to update invite code: "+err.Error())
 			return
 		}
+
+		// Serve the authoritative code from the row: when a concurrent request
+		// claimed it first, this adopts theirs instead of our (lost) one.
+		final, err := repository.GetDB().GetUserByField(ctx, "id", user.ID)
+		if err != nil || final == nil || final.InviteCode == "" {
+			response.JSONError(c, http.StatusInternalServerError, errs.ErrUpdateInfo, "failed to load invite code: "+err.Error())
+			return
+		}
+		user = final
 	}
 
 	// Return user invite code information

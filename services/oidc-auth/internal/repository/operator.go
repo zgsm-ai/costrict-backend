@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -249,6 +251,27 @@ func (d *Database) Upsert(ctx context.Context, model any, uniqueField string, va
 				Updates(model).Error; err != nil {
 				return fmt.Errorf("failed to update: %w", err)
 			}
+		}
+		return nil
+	})
+}
+
+// ClaimInviteCode atomically sets the invite code on the user's row only when
+// it is not already set (NULL or empty), so concurrent first-time fetches
+// converge on a single persisted code: the first writer wins and later writers
+// no-op. Upsert cannot do this — its update branch would silently overwrite a
+// just-committed code without erroring. Callers must re-read the row afterwards
+// to serve the authoritative code (theirs or the winner's).
+func (d *Database) ClaimInviteCode(ctx context.Context, userID uuid.UUID, code string) error {
+	return d.withTransaction(ctx, func(tx *gorm.DB) error {
+		result := tx.Model(&AuthUser{}).
+			Where("id = ? AND (invite_code IS NULL OR invite_code = '')", userID).
+			Updates(map[string]any{
+				"invite_code": code,
+				"updated_at":  time.Now(),
+			})
+		if result.Error != nil {
+			return fmt.Errorf("failed to claim invite code: %w", result.Error)
 		}
 		return nil
 	})
