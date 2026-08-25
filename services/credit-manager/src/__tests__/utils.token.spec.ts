@@ -91,10 +91,41 @@ describe('token utils', () => {
     });
 
     describe('clearToken', () => {
-        it('should remove token from cookies', () => {
+        it('should expire zgsmAdminToken cookie via document.cookie', () => {
+            // 模拟父域共享场景下的页面地址
+            Object.defineProperty(window, 'location', {
+                value: {
+                    hostname: 'zgsm.sangfor.com',
+                    pathname: '/credit/manager/',
+                    href: 'https://zgsm.sangfor.com/credit/manager/',
+                    origin: 'https://zgsm.sangfor.com',
+                    search: '',
+                    hash: '',
+                },
+                writable: true,
+            });
+
+            const setCookieSpy = vi.spyOn(document, 'cookie', 'set');
+
             clearToken();
 
+            expect(setCookieSpy).toHaveBeenCalled();
+            const writes = setCookieSpy.mock.calls.map((call) => String(call[0]));
+            const expiredWrites = writes.filter(
+                (w) => w.includes('zgsmAdminToken=') && w.includes('expires='),
+            );
+            expect(expiredWrites.length).toBeGreaterThan(0);
+            // 应包含根路径与当前路径的过期写入
+            expect(
+                expiredWrites.some((w) => w.includes('path=/') && !w.includes('domain=')),
+            ).toBe(true);
+            // 跨父域共享场景下应带父域 domain
+            expect(expiredWrites.some((w) => w.includes('domain=sangfor.com'))).toBe(true);
+
+            // 兜底调用 js-cookie 清理
             expect(Cookies.remove).toHaveBeenCalledWith('zgsmAdminToken');
+
+            setCookieSpy.mockRestore();
         });
     });
 
