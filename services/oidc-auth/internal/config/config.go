@@ -108,7 +108,7 @@ type QuotaConfig struct {
 }
 
 // UserCenterConfig configures the cs-user internal client used by the login
-// chain (parse-identity / get-or-create / auth-identities) and the userinfo
+// chain (verify / get-or-create / auth-identities) and the userinfo
 // soft-TTL refresh. BaseURL points at cs-user's internal API root;
 // InternalToken is the shared X-Internal-Token secret guarding those
 // endpoints; Timeout bounds a single RPC call (the login callback context

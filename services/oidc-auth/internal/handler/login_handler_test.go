@@ -19,52 +19,45 @@ import (
 // binary (usercenter.InitClient is sync.Once-guarded, so every test shares one
 // client URL). Behavior is driven by the token the client sends:
 //
-//	"bad-jwt"  → parse-identity 401
-//	"no-uuid"  → parse-identity profile without universal_id
+//	"bad-jwt"  → verify 401
+//	"no-uuid"  → verify active=true without universal_id
 //	"nogithub" → get-or-create returns subject-nogithub, no github identity row
 //	otherwise  → full success path
 func chainStub() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/internal/auth/parse-identity":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/internal/auth/verify":
 			var req map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			switch req["token"] {
 			case "bad-jwt":
-				jsonRespond(w, http.StatusUnauthorized, map[string]any{"error": "invalid casdoor jwt"})
+				jsonRespond(w, http.StatusUnauthorized, map[string]any{"active": false, "error": "invalid token"})
 				return
 			case "no-uuid":
 				jsonRespond(w, http.StatusOK, map[string]any{
-					"external_key": "casdoor:",
-					"profile":      map[string]string{"name": "NoUuid", "universal_id": ""},
+					"active": true,
+					"sub":    "sub-no-uuid",
 				})
 				return
 			case "nogithub":
 				jsonRespond(w, http.StatusOK, map[string]any{
-					"external_key": "casdoor:nogithub-uuid",
-					"profile": map[string]string{
-						"id": "casdoor-id", "sub": "sub-1",
-						"universal_id": "22222222-2222-2222-2222-222222222222",
-						"name":         "No GitHub", "email": "ng@example.com",
-					},
+					"active": true, "sub": "sub-nogithub",
+					"universal_id": "22222222-2222-2222-2222-222222222222",
+					"name":         "No GitHub", "email": "ng@example.com",
 				})
 				return
 			case "profilefail":
 				jsonRespond(w, http.StatusOK, map[string]any{
-					"external_key": "casdoor:profilefail-uuid",
-					"profile": map[string]string{
-						"id": "casdoor-id", "sub": "sub-1", "universal_id": "33333333-3333-3333-3333-333333333333",
-						"name": "Profile Fail", "email": "pf@example.com",
-					},
+					"active": true, "sub": "sub-fail",
+					"universal_id": "33333333-3333-3333-3333-333333333333",
+					"name":         "Profile Fail", "email": "pf@example.com",
 				})
 				return
 			}
 			jsonRespond(w, http.StatusOK, map[string]any{
-				"external_key": "casdoor:universal-1",
-				"profile": map[string]string{
-					"id": "casdoor-id", "sub": "sub-1", "universal_id": "11111111-1111-1111-1111-111111111111",
-					"name": "Zhang San", "email": "zs@example.com", "phone": "+8613800000000",
-				},
+				"active": true, "sub": "sub-1",
+				"universal_id": "11111111-1111-1111-1111-111111111111",
+				"name":         "Zhang San", "email": "zs@example.com", "phone": "+8613800000000",
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/internal/users/get-or-create":
 			var req usercenter.Claims

@@ -50,9 +50,9 @@ func jsonRespond(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func TestParseIdentity_Success(t *testing.T) {
+func TestVerify_Success(t *testing.T) {
 	s := newStubServer(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/internal/auth/parse-identity" {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/internal/auth/verify" {
 			http.NotFound(w, r)
 			return
 		}
@@ -62,63 +62,79 @@ func TestParseIdentity_Success(t *testing.T) {
 			return
 		}
 		jsonRespond(w, http.StatusOK, map[string]any{
-			"external_key": "casdoor:universal-123",
-			"profile": map[string]string{
-				"id": "casdoor-id", "sub": "sub-1", "universal_id": "universal-123",
-				"name": "Zhang San", "email": "zs@example.com", "phone": "+8613800000000",
-				"provider": "casdoor",
-			},
+			"active": true, "token_source": "casdoor", "sub": "sub-1",
+			"universal_id": "universal-123", "name": "Zhang San",
+			"email": "zs@example.com", "phone": "+8613800000000", "iss": "casdoor.example.com",
+			"reissued_token": "eyJ-reissued",
 		})
 	})
 	defer s.close()
 
-	profile, err := newTestClient(s.server.URL, time.Second).ParseIdentity(context.Background(), "jwt-token")
+	result, err := newTestClient(s.server.URL, time.Second).Verify(context.Background(), "jwt-token")
 	if err != nil {
-		t.Fatalf("ParseIdentity: %v", err)
+		t.Fatalf("Verify: %v", err)
 	}
-	if profile.UniversalID != "universal-123" || profile.Name != "Zhang San" {
-		t.Errorf("profile = %+v, want universal_id=universal-123 name=Zhang San", profile)
+	if !result.Active {
+		t.Error("Active = false, want true")
+	}
+	if result.UniversalID != "universal-123" || result.Name != "Zhang San" || result.Subject != "sub-1" {
+		t.Errorf("result = %+v, want universal_id=universal-123 name=Zhang San sub=sub-1", result)
+	}
+	if result.ReissuedToken != "eyJ-reissued" {
+		t.Errorf("ReissuedToken = %q, want passthrough eyJ-reissued", result.ReissuedToken)
 	}
 	if got := s.headers().Get("X-Internal-Token"); got != "test-internal-token" {
 		t.Errorf("X-Internal-Token = %q, want test-internal-token", got)
 	}
 }
 
-func TestParseIdentity_VerifyFailure_ReturnsErrInvalidIdentity(t *testing.T) {
+func TestVerify_Rejected_ReturnsErrInvalidIdentity(t *testing.T) {
 	s := newStubServer(func(w http.ResponseWriter, r *http.Request) {
-		jsonRespond(w, http.StatusUnauthorized, ginH("invalid casdoor jwt"))
+		jsonRespond(w, http.StatusUnauthorized, map[string]any{"active": false, "error": "invalid token"})
 	})
 	defer s.close()
 
-	_, err := newTestClient(s.server.URL, time.Second).ParseIdentity(context.Background(), "bad-jwt")
+	_, err := newTestClient(s.server.URL, time.Second).Verify(context.Background(), "bad-jwt")
 	if !errors.Is(err, ErrInvalidIdentity) {
 		t.Fatalf("err = %v, want ErrInvalidIdentity", err)
 	}
 }
 
-func TestParseIdentity_Unconfigured_ReturnsErrServiceUnavailable(t *testing.T) {
+func TestVerify_Inactive_ReturnsErrInvalidIdentity(t *testing.T) {
+	s := newStubServer(func(w http.ResponseWriter, r *http.Request) {
+		jsonRespond(w, http.StatusOK, map[string]any{"active": false, "error": "invalid token"})
+	})
+	defer s.close()
+
+	_, err := newTestClient(s.server.URL, time.Second).Verify(context.Background(), "bad-jwt")
+	if !errors.Is(err, ErrInvalidIdentity) {
+		t.Fatalf("err = %v, want ErrInvalidIdentity", err)
+	}
+}
+
+func TestVerify_Unconfigured_ReturnsErrServiceUnavailable(t *testing.T) {
 	s := newStubServer(func(w http.ResponseWriter, r *http.Request) {
 		jsonRespond(w, http.StatusServiceUnavailable, ginH("casdoor verifier not configured"))
 	})
 	defer s.close()
 
-	_, err := newTestClient(s.server.URL, time.Second).ParseIdentity(context.Background(), "jwt")
+	_, err := newTestClient(s.server.URL, time.Second).Verify(context.Background(), "jwt")
 	if !errors.Is(err, ErrServiceUnavailable) {
 		t.Fatalf("err = %v, want ErrServiceUnavailable", err)
 	}
 }
 
-func TestParseIdentity_NetworkError_ReturnsErrServiceUnavailable(t *testing.T) {
+func TestVerify_NetworkError_ReturnsErrServiceUnavailable(t *testing.T) {
 	s := newStubServer(func(w http.ResponseWriter, r *http.Request) {})
 	s.close() // server down → connection refused
 
-	_, err := newTestClient(s.server.URL, time.Second).ParseIdentity(context.Background(), "jwt")
+	_, err := newTestClient(s.server.URL, time.Second).Verify(context.Background(), "jwt")
 	if !errors.Is(err, ErrServiceUnavailable) {
 		t.Fatalf("err = %v, want ErrServiceUnavailable", err)
 	}
 }
 
-func TestParseIdentity_Timeout_ReturnsErrServiceUnavailable(t *testing.T) {
+func TestVerify_Timeout_ReturnsErrServiceUnavailable(t *testing.T) {
 	s := newStubServer(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		jsonRespond(w, http.StatusOK, ginH("{}"))
@@ -126,7 +142,7 @@ func TestParseIdentity_Timeout_ReturnsErrServiceUnavailable(t *testing.T) {
 	defer s.close()
 
 	start := time.Now()
-	_, err := newTestClient(s.server.URL, 50*time.Millisecond).ParseIdentity(context.Background(), "jwt")
+	_, err := newTestClient(s.server.URL, 50*time.Millisecond).Verify(context.Background(), "jwt")
 	if !errors.Is(err, ErrServiceUnavailable) {
 		t.Fatalf("err = %v, want ErrServiceUnavailable", err)
 	}

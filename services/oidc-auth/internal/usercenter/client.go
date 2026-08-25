@@ -1,5 +1,5 @@
 // Package usercenter is the cs-user internal API client. It backs the login
-// chain (parse-identity → get-or-create → auth-identities) and the userinfo
+// chain (verify → get-or-create → auth-identities) and the userinfo
 // soft-TTL refresh (get-profile). All endpoints are guarded by the shared
 // X-Internal-Token secret; oidc-auth never sends X-Tenant-Id, so every call
 // lands on the default tenant.
@@ -40,20 +40,31 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("usercenter: unexpected status %d: %s", e.StatusCode, e.Body)
 }
 
-// IdentityProfile is the verified IdP profile returned by parse-identity
-// (mirrors cs-user's reissueProfile wire shape).
-type IdentityProfile struct {
-	ID                string `json:"id,omitempty"`
-	Sub               string `json:"sub,omitempty"`
-	UniversalID       string `json:"universal_id,omitempty"`
-	Name              string `json:"name,omitempty"`
-	PreferredUsername string `json:"preferred_username,omitempty"`
-	Email             string `json:"email,omitempty"`
-	Phone             string `json:"phone,omitempty"`
-	Picture           string `json:"picture,omitempty"`
-	Owner             string `json:"owner,omitempty"`
-	Provider          string `json:"provider,omitempty"`
-	ProviderUserID    string `json:"provider_user_id,omitempty"`
+// VerifyResponse is the verified token payload returned by the verify
+// endpoint (mirrors cs-user's verifyTokenResponse wire shape). Verify accepts
+// both cs-user-signed and Casdoor-signed JWTs (dual-source), covering the
+// casdoor-only parse-identity endpoint that is being retired.
+//
+// ReissuedToken is only populated on the Casdoor fallback path for known
+// users. oidc-auth deliberately does not persist it: the login flow re-mints
+// the token right after verification (generateTokenPair / the refresh path),
+// so the stored device token is always a fresh token anyway.
+type VerifyResponse struct {
+	Active            bool      `json:"active"`
+	TokenSource       string    `json:"token_source,omitempty"` // deprecated: use Issuer
+	Subject           string    `json:"sub,omitempty"`
+	UniversalID       string    `json:"universal_id,omitempty"`
+	ShortID           string    `json:"short_id,omitempty"`
+	Name              string    `json:"name,omitempty"`
+	Email             string    `json:"email,omitempty"`
+	Phone             string    `json:"phone,omitempty"`
+	TenantID          string    `json:"tenant_id,omitempty"`
+	TenantSlug        string    `json:"tenant_slug,omitempty"`
+	ExpiresAt         time.Time `json:"exp,omitempty"`
+	IssuedAt          time.Time `json:"iat,omitempty"`
+	Issuer            string    `json:"iss,omitempty"`
+	ReissuedToken     string    `json:"reissued_token,omitempty"`
+	ReissuedExpiresAt time.Time `json:"reissued_expires_at,omitempty"`
 }
 
 // Claims is the get-or-create request body, mirroring cs-user's
@@ -126,23 +137,22 @@ func NewClient(baseURL, internalToken string, httpClient *http.Client, timeout t
 	}
 }
 
-// ParseIdentity forwards the raw Casdoor JWT to cs-user for verification and
-// returns the verified profile. ErrInvalidIdentity on verify failure.
-func (c *Client) ParseIdentity(ctx context.Context, rawJWT string) (*IdentityProfile, error) {
+// Verify forwards the raw JWT to cs-user for dual-source verification (its own
+// signature first, then the Casdoor fallback) and returns the verified token
+// payload. ErrInvalidIdentity when cs-user rejects the token.
+func (c *Client) Verify(ctx context.Context, rawJWT string) (*VerifyResponse, error) {
 	body, err := json.Marshal(map[string]string{"token": rawJWT})
 	if err != nil {
 		return nil, err
 	}
-	var out struct {
-		Profile *IdentityProfile `json:"profile"`
-	}
-	if err := c.doJSON(ctx, http.MethodPost, "/api/internal/auth/parse-identity", body, &out); err != nil {
+	var out VerifyResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/internal/auth/verify", body, &out); err != nil {
 		return nil, err
 	}
-	if out.Profile == nil {
+	if !out.Active {
 		return nil, ErrInvalidIdentity
 	}
-	return out.Profile, nil
+	return &out, nil
 }
 
 // GetOrCreate upserts the user from parsed Casdoor claims and reports whether

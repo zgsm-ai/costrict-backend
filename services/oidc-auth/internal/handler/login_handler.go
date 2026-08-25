@@ -263,7 +263,7 @@ func GetUserByOauth(ctx context.Context, typ, code string, parm *ParameterCarrie
 	return user, isNewUser, nil
 }
 
-// fetchUserByIdentityChain runs the cs-user login chain (parse-identity →
+// fetchUserByIdentityChain runs the cs-user login chain (verify →
 // get-or-create → auth-identities) and assembles the local AuthUser identity
 // fields. isNewUser comes from get-or-create and gates inviter-code binding.
 // Any RPC failure fails the login (decision 2: fail-closed).
@@ -272,26 +272,20 @@ func fetchUserByIdentityChain(ctx context.Context, accessToken string) (*reposit
 	if client == nil {
 		return nil, false, errors.New("usercenter client not initialized")
 	}
-	profile, err := client.ParseIdentity(ctx, accessToken)
+	result, err := client.Verify(ctx, accessToken)
 	if err != nil {
 		return nil, false, err
 	}
-	universalID, err := uuid.Parse(profile.UniversalID)
+	universalID, err := uuid.Parse(result.UniversalID)
 	if err != nil || universalID == uuid.Nil {
-		return nil, false, fmt.Errorf("invalid universal_id from parse-identity: %q", profile.UniversalID)
+		return nil, false, fmt.Errorf("%w: invalid universal_id from verify: %q", usercenter.ErrInvalidIdentity, result.UniversalID)
 	}
 	csUser, isNewUser, err := client.GetOrCreate(ctx, &usercenter.Claims{
-		ID:                profile.ID,
-		Sub:               profile.Sub,
-		UniversalID:       profile.UniversalID,
-		Name:              profile.Name,
-		PreferredUsername: profile.PreferredUsername,
-		Email:             profile.Email,
-		Phone:             profile.Phone,
-		Picture:           profile.Picture,
-		Owner:             profile.Owner,
-		Provider:          profile.Provider,
-		ProviderUserID:    profile.ProviderUserID,
+		Sub:         result.Subject,
+		UniversalID: result.UniversalID,
+		Name:        result.Name,
+		Email:       result.Email,
+		Phone:       result.Phone,
 	})
 	if err != nil {
 		return nil, false, err
@@ -300,9 +294,9 @@ func fetchUserByIdentityChain(ctx context.Context, accessToken string) (*reposit
 	now := time.Now()
 	user := &repository.AuthUser{
 		ID:               universalID,
-		Name:             profile.Name,
-		Phone:            normalizePhone(profile.Phone),
-		Email:            profile.Email,
+		Name:             result.Name,
+		Phone:            normalizePhone(result.Phone),
+		Email:            result.Email,
 		SubjectID:        csUser.SubjectID,
 		IdentitySyncedAt: &now,
 		CreatedAt:        now,

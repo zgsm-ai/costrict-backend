@@ -137,7 +137,7 @@ quotaManager:
   # QuotaManager service base URL
   baseURL: ""
 
-# cs-user service configuration (identity authority: parse-identity /
+# cs-user service configuration (identity authority: verify /
 # get-or-create / auth-identities, guarded by X-Internal-Token)
 userCenter:
   # cs-user internal API base URL (local dev: cs-user runs on :8082)

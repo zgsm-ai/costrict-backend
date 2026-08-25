@@ -287,7 +287,7 @@ func (s *Server) userInfoHandler(c *gin.Context) {
 
 // fetchUserInfoFromCsUser verifies the caller's access token against cs-user
 // and assembles the identity fields purely from cs-user state (the local DB is
-// not authoritative for userinfo). parse-identity and get-or-create are hard
+// not authoritative for userinfo). verify and get-or-create are hard
 // gates — an invalid token or an explicitly unbound identity fails the request.
 // get-profile and auth-identities are soft reads: on failure the login-time
 // claims are served with a warning, never an error to the client.
@@ -296,26 +296,20 @@ func fetchUserInfoFromCsUser(ctx context.Context, token string) (*repository.Aut
 	if client == nil {
 		return nil, fmt.Errorf("usercenter client not initialized")
 	}
-	profile, err := client.ParseIdentity(ctx, token)
+	result, err := client.Verify(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	universalID, err := uuid.Parse(profile.UniversalID)
+	universalID, err := uuid.Parse(result.UniversalID)
 	if err != nil || universalID == uuid.Nil {
-		return nil, fmt.Errorf("%w: invalid universal_id %q", usercenter.ErrInvalidIdentity, profile.UniversalID)
+		return nil, fmt.Errorf("%w: invalid universal_id %q", usercenter.ErrInvalidIdentity, result.UniversalID)
 	}
 	csUser, _, err := client.GetOrCreate(ctx, &usercenter.Claims{
-		ID:                profile.ID,
-		Sub:               profile.Sub,
-		UniversalID:       profile.UniversalID,
-		Name:              profile.Name,
-		PreferredUsername: profile.PreferredUsername,
-		Email:             profile.Email,
-		Phone:             profile.Phone,
-		Picture:           profile.Picture,
-		Owner:             profile.Owner,
-		Provider:          profile.Provider,
-		ProviderUserID:    profile.ProviderUserID,
+		Sub:         result.Subject,
+		UniversalID: result.UniversalID,
+		Name:        result.Name,
+		Email:       result.Email,
+		Phone:       result.Phone,
 	})
 	if err != nil {
 		return nil, err
@@ -323,9 +317,9 @@ func fetchUserInfoFromCsUser(ctx context.Context, token string) (*repository.Aut
 
 	user := &repository.AuthUser{
 		ID:        universalID,
-		Name:      profile.Name,
-		Phone:     normalizePhone(profile.Phone),
-		Email:     profile.Email,
+		Name:      result.Name,
+		Phone:     normalizePhone(result.Phone),
+		Email:     result.Email,
 		SubjectID: csUser.SubjectID,
 	}
 	if csUser.SubjectID == "" {
