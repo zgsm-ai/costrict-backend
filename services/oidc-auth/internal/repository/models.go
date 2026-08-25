@@ -42,6 +42,15 @@ type AuthUser struct {
 	AccessTime       time.Time  `gorm:"type:timestamptz" json:"access_time"`
 	InviteCode       string     `gorm:"size:10;index" json:"invite_code"`
 	InviterID        *uuid.UUID `gorm:"type:uuid" json:"inviter_id"`
+	// SubjectID is the cs-user subject_id from the get-or-create response
+	// (decision 6): the anchor for the userinfo soft-TTL refresh and the
+	// auth-identities / profile lookups.
+	SubjectID string `gorm:"size:191;index" json:"subject_id"`
+	// IdentitySyncedAt is the last time the identity fields (username / email /
+	// phone / github) were written from the cs-user login chain or a TTL
+	// refresh (decision 6). Not reusable with UpdatedAt, which devices also
+	// touch. NULL until the first cs-user-backed login.
+	IdentitySyncedAt *time.Time `gorm:"type:timestamptz" json:"identity_synced_at"`
 }
 
 type Device struct {

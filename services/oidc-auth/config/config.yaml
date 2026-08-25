@@ -6,6 +6,10 @@ server:
   # Base URL for the application, used for generating callbacks and redirects
   baseURL: ""
 
+  # Web frontend origin for post-login browser redirects (credit-manager).
+  # When empty, falls back to the OAuth provider's public endpoint.
+  webBaseURL: ""
+
   # Intranet/Extranet access
   isPrivate: "false"
 
@@ -132,6 +136,18 @@ encrypt:
 quotaManager:
   # QuotaManager service base URL
   baseURL: ""
+
+# cs-user service configuration (identity authority: parse-identity /
+# get-or-create / auth-identities, guarded by X-Internal-Token)
+userCenter:
+  # cs-user internal API base URL (local dev: cs-user runs on :8082)
+  baseURL: "http://localhost:8082"
+
+  # Shared secret for X-Internal-Token header (matches cs-user CS_USER_INTERNAL_TOKEN)
+  internalToken: "password"
+
+  # Timeout for a single RPC call (login callback caps the 3-call chain at 15s)
+  timeout: "5s"
 
 # Logging configuration
 log:

@@ -19,6 +19,11 @@ const (
 	ErrBindAccount     = "oidc-auth.bindAccountFailed"
 	ErrTokenGenerate   = "oidc-auth.tokenGenerateFailed"
 	ErrAuthentication  = "oidc-auth.authenticationFailed"
+	// ErrInvalidIdentity: cs-user rejected the identity (401) — login fails.
+	ErrInvalidIdentity = "oidc-auth.invalidIdentity"
+	// ErrServiceUnavailable: cs-user unreachable / failed (network, timeout,
+	// 5xx) — login cannot establish the identity trust boundary.
+	ErrServiceUnavailable = "oidc-auth.serviceUnavailable"
 )
 
 func ParamNeedErr(name string) error {

@@ -4,12 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -54,20 +51,6 @@ type TokenOptions struct {
 	AccessTokenExpiry  time.Duration
 	RefreshTokenExpiry time.Duration
 }
-
-// JWTPayload defines the basic structure of AESEncrypt payload
-type JWTPayload struct {
-	Iss string   `json:"iss,omitempty"` // Issuer
-	Sub string   `json:"sub,omitempty"` // Subject
-	Aud []string `json:"aud,omitempty"` // Audience
-	Exp int64    `json:"exp,omitempty"` // Expiration Time
-	Nbf int64    `json:"nbf,omitempty"` // Not Before
-	Iat int64    `json:"iat,omitempty"` // Issued At	Jti string   `json:"jti,omitempty"` // AESEncrypt ID
-
-	CustomClaims map[string]any `json:"-"`
-}
-
-var standardClaims = [7]string{"iss", "sub", "aud", "exp", "nbf", "iat", "jti"}
 
 // generateJTI generates a unique AESEncrypt ID.
 func generateJTI() (string, error) {
@@ -211,49 +194,6 @@ func GenerateRandomString(length int) (string, error) {
 		b[i] = charset[int(b[i])%len(charset)]
 	}
 	return string(b), nil
-}
-
-// DecodeJWTPayloadUnverified parses AESEncrypt payload without signature verification
-// Note: This function is only for debugging and viewing token content, should not be used for token validation
-func DecodeJWTPayloadUnverified(tokenStr string) (*JWTPayload, error) {
-	// Split token
-	parts := strings.Split(tokenStr, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid token format: token does not have 3 parts")
-	}
-	// Decode the payload part
-	payload := parts[1]
-	// Add base64 padding
-	if l := len(payload) % 4; l > 0 {
-		payload += strings.Repeat("=", 4-l)
-	}
-	// Decode base64
-	decoded, err := base64.URLEncoding.DecodeString(payload)
-	if err != nil {
-		// Try using RawURLEncoding
-		decoded, err = base64.RawURLEncoding.DecodeString(payload)
-		if err != nil {
-			return nil, fmt.Errorf("error decoding payload: %v", err)
-		}
-	}
-	var result JWTPayload
-	if err := json.Unmarshal(decoded, &result); err != nil {
-		return nil, fmt.Errorf("error parsing payload JSON: %v", err)
-	}
-
-	// Parse custom fields
-	var customClaims map[string]any
-	if err := json.Unmarshal(decoded, &customClaims); err != nil {
-		return nil, fmt.Errorf("error parsing custom claims: %v", err)
-	}
-
-	for _, c := range standardClaims {
-		delete(customClaims, c)
-	}
-	// Save remaining custom fields
-	result.CustomClaims = customClaims
-
-	return &result, nil
 }
 
 func GetTokenByTokenHash(ctx context.Context, tokenHash string) (*TokenPair, error) {

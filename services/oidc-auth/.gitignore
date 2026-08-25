@@ -28,3 +28,4 @@ files/
 lastupdate.tmp
 commentsRouter*.go
 debug/
+config.yaml.local

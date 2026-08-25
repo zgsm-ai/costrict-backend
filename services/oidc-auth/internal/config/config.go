@@ -21,12 +21,14 @@ type AppConfig struct {
 	SMS          SMSConfig                 `json:"sms" mapstructure:"sms" validate:"required"`
 	Providers    map[string]ProviderConfig `json:"providers" mapstructure:"providers"`
 	QuotaManager QuotaConfig               `json:"quotaManager" mapstructure:"quotaManager"`
+	UserCenter   UserCenterConfig          `json:"userCenter" mapstructure:"userCenter"`
 	Redirect     RedirectConfig            `json:"redirect" mapstructure:"redirect"`
 }
 
 type Server struct {
 	ServerPort string            `json:"serverPort" mapstructure:"serverPort" validate:"required,numeric"`
 	BaseURL    string            `json:"baseURL" mapstructure:"baseURL"`
+	WebBaseURL string            `json:"webBaseURL" mapstructure:"webBaseURL"`
 	HTTP       *HTTPClientConfig `json:"http" mapstructure:"http" validate:"required"`
 	IsPrivate  bool              `json:"isPrivate" mapstructure:"isPrivate"`
 }
@@ -105,6 +107,18 @@ type QuotaConfig struct {
 	HTTPClient *http.Client
 }
 
+// UserCenterConfig configures the cs-user internal client used by the login
+// chain (parse-identity / get-or-create / auth-identities) and the userinfo
+// soft-TTL refresh. BaseURL points at cs-user's internal API root;
+// InternalToken is the shared X-Internal-Token secret guarding those
+// endpoints; Timeout bounds a single RPC call (the login callback context
+// caps the whole three-call chain at 15s, so keep it at 3-5s).
+type UserCenterConfig struct {
+	BaseURL       string        `json:"baseURL" mapstructure:"baseURL"`
+	InternalToken string        `json:"internalToken" mapstructure:"internalToken"`
+	Timeout       time.Duration `json:"timeout" mapstructure:"timeout"`
+}
+
 const (
 	EnvPrefix         = ""
 	DefaultConfigDir  = "."
@@ -126,6 +140,9 @@ func InitConfig(cfgFile string) (*AppConfig, error) {
 
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
+		// Config files like "config.yaml.local" don't end in a recognized
+		// extension; viper would otherwise fail with "Unsupported Config Type".
+		viper.SetConfigType(DefaultConfigType)
 	} else {
 		viper.AddConfigPath(DefaultConfigDir)
 		viper.SetConfigName(DefaultConfigName)

@@ -123,15 +123,17 @@ func (s *CasdoorProvider) Update(ctx context.Context, data *repository.AuthUser)
 		}
 		return nil
 	}
+	// 决策 3：仅覆盖有源字段（cs-user profile / auth-identities），本地自有字段
+	// （Vip / Company / Location 等）保留本地值，EmployeeNumber 停止同步
 	existingUser.GithubName = data.GithubName
+	existingUser.GithubID = data.GithubID
 	existingUser.Name = data.Name
 	existingUser.Email = data.Email
-	existingUser.Location = data.Location
-	existingUser.Company = data.Company
 	existingUser.Phone = data.Phone
-	existingUser.Vip = data.Vip
-	existingUser.EmployeeNumber = data.EmployeeNumber
-	existingUser.ID = data.ID
+	if data.SubjectID != "" {
+		existingUser.SubjectID = data.SubjectID
+	}
+	existingUser.IdentitySyncedAt = data.IdentitySyncedAt
 
 	newDevice := data.Devices[0]
 	newDevice.UpdatedAt = time.Now()
@@ -177,72 +179,6 @@ func (s *CasdoorProvider) Update(ctx context.Context, data *repository.AuthUser)
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 	return nil
-}
-
-func (s *CasdoorProvider) GetUserInfo(ctx context.Context, accessToken string) (*repository.AuthUser, error) {
-	payload, err := utils.DecodeJWTPayloadUnverified(accessToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode AESEncrypt payload: %w", err)
-	}
-	/*
-		Meeting the following conditions indicates that custom login is used
-		casdoor -> /providers/admin/customAuth -> User mapping
-			{
-			   "id": "employee_number",
-			   "username": "username",
-			   "displayName": "username",
-			   "email": "phone_number",
-			   "avatarUrl": ""
-			  }
-	*/
-	name, _ := payload.CustomClaims["name"].(string)
-	phone, _ := payload.CustomClaims["phone"].(string)
-	universalID, _ := payload.CustomClaims["universal_id"].(string)
-
-	var githubID, githubName, customName, employeeNum, email string
-
-	id, err := uuid.Parse(universalID)
-	if err != nil {
-		return nil, err
-	}
-
-	customPayload, ok := payload.CustomClaims["properties"].(map[string]any)
-	if ok && len(customPayload) != 0 {
-		githubID, _ = customPayload["oauth_GitHub_id"].(string)
-		githubName, _ = customPayload["oauth_GitHub_username"].(string)
-		customName, _ = customPayload["oauth_Custom_username"].(string)
-		employeeNum, _ = customPayload["oauth_Custom_id"].(string)
-		customPhone, _ := customPayload["oauth_Custom_email"].(string)
-		if githubID != "" {
-			email, _ = payload.CustomClaims["email"].(string)
-		}
-		if customPhone != "" {
-			phone = customPhone
-		}
-		if githubName != "" {
-			name = githubName
-		} else if customName != "" {
-			name = customName + employeeNum
-		}
-	} else {
-		name = phone
-	}
-
-	if strings.Contains(phone, "+86") {
-		phone = strings.ReplaceAll(phone, "+86", "")
-	}
-	user := &repository.AuthUser{
-		ID:             id,
-		Phone:          phone,
-		GithubID:       githubID,
-		Email:          email,
-		Name:           name,
-		GithubName:     githubName,
-		EmployeeNumber: employeeNum,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-	}
-	return user, nil
 }
 
 func (s *CasdoorProvider) RefreshToken(ctx context.Context, refreshToken string) (*TokenResponse, error) {

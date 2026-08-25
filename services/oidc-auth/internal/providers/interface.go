@@ -27,8 +27,6 @@ type OAuthProvider interface {
 
 	ExchangeToken(ctx context.Context, code string) (*TokenResponse, error)
 
-	GetUserInfo(ctx context.Context, accessToken string) (*repository.AuthUser, error)
-
 	RefreshToken(ctx context.Context, refreshToken string) (*TokenResponse, error)
 
 	Update(ctx context.Context, data *repository.AuthUser) error

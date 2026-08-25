@@ -18,6 +18,7 @@ import (
 	"github.com/zgsm-ai/oidc-auth/internal/repository"
 	"github.com/zgsm-ai/oidc-auth/internal/service"
 	github "github.com/zgsm-ai/oidc-auth/internal/sync"
+	"github.com/zgsm-ai/oidc-auth/internal/usercenter"
 	"github.com/zgsm-ai/oidc-auth/pkg/log"
 	"github.com/zgsm-ai/oidc-auth/pkg/utils"
 )
@@ -130,6 +131,12 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal(err, "Failed to initialize providers")
 		}
+
+		// Initialize cs-user client (fail-closed: without it the login chain
+		// cannot establish the identity trust boundary).
+		if err := usercenter.InitClient(globalConfig.UserCenter.BaseURL, globalConfig.UserCenter.InternalToken, httpClient, globalConfig.UserCenter.Timeout); err != nil {
+			log.Fatal(err, "Failed to initialize usercenter client")
+		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -145,6 +152,7 @@ var serveCmd = &cobra.Command{
 			server := handler.Server{
 				ServerPort:  globalConfig.Server.ServerPort,
 				BaseURL:     globalConfig.Server.BaseURL,
+				WebBaseURL:  globalConfig.Server.WebBaseURL,
 				HTTPClient:  initHTTPClient(nil),
 				IsPrivate:   globalConfig.Server.IsPrivate,
 				RedirectURL: globalConfig.Redirect.Uris,

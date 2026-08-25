@@ -6,15 +6,28 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/zgsm-ai/oidc-auth/internal/middleware"
+	"github.com/zgsm-ai/oidc-auth/internal/providers"
 	"github.com/zgsm-ai/oidc-auth/pkg/log"
 )
 
 type Server struct {
 	ServerPort  string
 	BaseURL     string
+	WebBaseURL  string
 	HTTPClient  *http.Client
 	IsPrivate   bool
 	RedirectURL map[string]string
+}
+
+// webRedirectBase returns the origin used for post-login browser redirects
+// (the web frontend, e.g. http://127.0.0.1:9527 in local dev). Falls back to
+// the OAuth provider's public endpoint when the dedicated web base URL is not
+// configured, so existing deployments keep their current behavior.
+func (s *Server) webRedirectBase(providerInstance providers.OAuthProvider) string {
+	if s.WebBaseURL != "" {
+		return s.WebBaseURL
+	}
+	return providerInstance.GetEndpoint(false)
 }
 
 type ParameterCarrier struct {
