@@ -67,7 +67,7 @@ describe('token utils', () => {
 
             const result = getToken();
 
-            expect(Cookies.get).toHaveBeenCalledWith('oidcAdminToken');
+            expect(Cookies.get).toHaveBeenCalledWith('zgsmAdminToken');
             expect(result).toBe(mockToken);
         });
 
@@ -86,15 +86,14 @@ describe('token utils', () => {
 
             setToken(token);
 
-            expect(Cookies.set).toHaveBeenCalledWith('oidcAdminToken', token);
+            expect(Cookies.set).toHaveBeenCalledWith('zgsmAdminToken', token);
         });
     });
 
     describe('clearToken', () => {
-        it('should remove token from cookies and clear legacy cookie', () => {
+        it('should remove token from cookies', () => {
             clearToken();
 
-            expect(Cookies.remove).toHaveBeenCalledWith('oidcAdminToken');
             expect(Cookies.remove).toHaveBeenCalledWith('zgsmAdminToken');
         });
     });
