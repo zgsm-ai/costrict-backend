@@ -49,6 +49,15 @@ func chainStub() *httptest.Server {
 					},
 				})
 				return
+			case "profilefail":
+				jsonRespond(w, http.StatusOK, map[string]any{
+					"external_key": "casdoor:profilefail-uuid",
+					"profile": map[string]string{
+						"id": "casdoor-id", "sub": "sub-1", "universal_id": "33333333-3333-3333-3333-333333333333",
+						"name": "Profile Fail", "email": "pf@example.com",
+					},
+				})
+				return
 			}
 			jsonRespond(w, http.StatusOK, map[string]any{
 				"external_key": "casdoor:universal-1",
@@ -63,13 +72,28 @@ func chainStub() *httptest.Server {
 			subjectID := "subject-1"
 			if req.UniversalID == "22222222-2222-2222-2222-222222222222" {
 				subjectID = "subject-nogithub"
+			} else if req.UniversalID == "33333333-3333-3333-3333-333333333333" {
+				subjectID = "subject-fail"
 			}
 			jsonRespond(w, http.StatusOK, map[string]any{
 				"user":        map[string]any{"subject_id": subjectID, "username": "zs"},
 				"is_new_user": true,
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-1/profile":
+			jsonRespond(w, http.StatusOK, map[string]any{
+				"subject_id": "subject-1", "username": "zs-updated",
+				"display_name": "Zhang San Updated", "email": "zs-updated@example.com", "phone": "+8613800001111",
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-fail/profile":
+			jsonRespond(w, http.StatusInternalServerError, map[string]any{"error": "profile unavailable"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-nogithub/auth-identities":
 			jsonRespond(w, http.StatusOK, map[string]any{"identities": []any{}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-fail/auth-identities":
+			jsonRespond(w, http.StatusOK, map[string]any{
+				"identities": []any{
+					map[string]any{"provider": "github", "provider_user_id": "gh-2", "display_name": "dromedary"},
+				},
+			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-1/auth-identities":
 			jsonRespond(w, http.StatusOK, map[string]any{
 				"identities": []any{
@@ -188,6 +212,49 @@ func TestNormalizePhone(t *testing.T) {
 	}
 	if got := normalizePhone("13800000000"); got != "13800000000" {
 		t.Errorf("normalizePhone(13800000000) = %q", got)
+	}
+}
+
+func TestFetchUserInfoFromCsUser_Success(t *testing.T) {
+	user, err := fetchUserInfoFromCsUser(context.Background(), "ok-token")
+	if err != nil {
+		t.Fatalf("fetchUserInfoFromCsUser: %v", err)
+	}
+	if user.ID.String() != "11111111-1111-1111-1111-111111111111" {
+		t.Errorf("ID = %s, want universal_id", user.ID)
+	}
+	if user.Name != "zs-updated" {
+		t.Errorf("Name = %q, want profile username zs-updated", user.Name)
+	}
+	if user.Email != "zs-updated@example.com" {
+		t.Errorf("Email = %q, want profile email", user.Email)
+	}
+	if user.Phone != "13800001111" {
+		t.Errorf("Phone = %q, want profile phone with +86 stripped", user.Phone)
+	}
+	if user.GithubID != "gh-1" || user.GithubName != "octocat" {
+		t.Errorf("github = id:%q name:%q, want gh-1 / octocat", user.GithubID, user.GithubName)
+	}
+}
+
+func TestFetchUserInfoFromCsUser_SoftProfileFailure(t *testing.T) {
+	// GetProfile failing is a soft read: login-time claims are served, no error.
+	user, err := fetchUserInfoFromCsUser(context.Background(), "profilefail")
+	if err != nil {
+		t.Fatalf("fetchUserInfoFromCsUser: %v", err)
+	}
+	if user.Name != "Profile Fail" || user.Email != "pf@example.com" {
+		t.Errorf("login-time claims = name:%q email:%q, want Profile Fail / pf@example.com", user.Name, user.Email)
+	}
+	// ListIdentities still applies even after the profile read failed.
+	if user.GithubID != "gh-2" || user.GithubName != "dromedary" {
+		t.Errorf("github = id:%q name:%q, want gh-2 / dromedary", user.GithubID, user.GithubName)
+	}
+}
+
+func TestFetchUserInfoFromCsUser_InvalidIdentity(t *testing.T) {
+	if _, err := fetchUserInfoFromCsUser(context.Background(), "bad-jwt"); !errors.Is(err, usercenter.ErrInvalidIdentity) {
+		t.Errorf("err = %v, want ErrInvalidIdentity", err)
 	}
 }
 

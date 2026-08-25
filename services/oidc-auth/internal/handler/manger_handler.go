@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,7 +16,6 @@ import (
 	"github.com/zgsm-ai/oidc-auth/internal/providers"
 	"github.com/zgsm-ai/oidc-auth/internal/repository"
 	"github.com/zgsm-ai/oidc-auth/internal/service"
-	github "github.com/zgsm-ai/oidc-auth/internal/sync"
 	"github.com/zgsm-ai/oidc-auth/internal/usercenter"
 	"github.com/zgsm-ai/oidc-auth/pkg/response"
 	"github.com/zgsm-ai/oidc-auth/pkg/utils"
@@ -25,12 +23,6 @@ import (
 
 const (
 	defaultTimeout = 45 * time.Second
-	shortTimeout   = 10 * time.Second
-	// identityTTL bounds how long the local identity columns are trusted before
-	// a soft refresh from cs-user (decision 6). Must be >= cs-user's
-	// GetOrCreateUser syncInterval (15m) so the two throttle layers never
-	// invert.
-	identityTTL = 24 * time.Hour
 )
 
 func getContextWithTimeout(timeout time.Duration) (context.Context, context.CancelFunc) {
@@ -269,31 +261,14 @@ func (s *Server) userInfoHandler(c *gin.Context) {
 		return
 	}
 
-	tokenHash := utils.HashToken(token)
-	ctx, cancel := getContextWithTimeout(shortTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	user, err := repository.GetDB().GetUserByDeviceConditions(ctx, map[string]any{
-		"access_token_hash": tokenHash,
-	})
-	if err != nil || user == nil {
-		response.HandleError(c, http.StatusBadRequest, errs.ErrTokenInvalid, errs.ErrInfoInvalidToken)
+	user, err := fetchUserInfoFromCsUser(ctx, token)
+	if err != nil {
+		status, codeMsg := mapUserCenterError(err)
+		response.HandleError(c, status, codeMsg, err)
 		return
-	}
-
-	// decision 6: identity fields are local columns with a soft TTL. Refresh
-	// lazily when stale; refresh failure keeps stale values + warning, never
-	// errors to the client.
-	if user.IdentitySyncedAt == nil || time.Since(*user.IdentitySyncedAt) > identityTTL {
-		user = refreshUserIdentity(ctx, user)
-	}
-
-	isStar := true
-	starProject := user.GithubStar
-
-	project := fmt.Sprintf("%s.%s", github.Owner, github.Repo)
-	if starProject == "" || starProject != project {
-		isStar = false
 	}
 
 	data := gin.H{
@@ -305,110 +280,88 @@ func (s *Server) userInfoHandler(c *gin.Context) {
 		"githubID":   user.GithubID,
 		"githubName": user.GithubName,
 		"isPrivate":  s.IsPrivate,
-		"isStar":     isStar,
 	}
 
 	response.JSONSuccess(c, "", data)
 }
 
-// identityRefresh carries one in-flight cs-user identity refresh so concurrent
-// requests for the same user coalesce into a single refresh (F-05).
-type identityRefresh struct {
-	done chan struct{}
-	user *repository.AuthUser
-	err  error
-}
-
-var (
-	identityRefreshMu     sync.Mutex
-	identityRefreshFlight = map[string]*identityRefresh{}
-)
-
-// refreshUserIdentity refreshes the user's identity fields from cs-user when
-// identity_synced_at is stale (stale-while-revalidate, decision 6). It mutates
-// user in place on success and persists the new values; on failure it leaves
-// user untouched, logs a warning, and never errors (F-03).
-func refreshUserIdentity(ctx context.Context, user *repository.AuthUser) *repository.AuthUser {
-	if user == nil || user.SubjectID == "" {
-		// Legacy user without a cs-user subject: nothing to refresh until the
-		// next cs-user-backed login writes it.
-		return user
-	}
-	key := user.ID.String()
-
-	identityRefreshMu.Lock()
-	if inFlight, ok := identityRefreshFlight[key]; ok {
-		identityRefreshMu.Unlock()
-		select {
-		case <-inFlight.done:
-			if inFlight.err == nil {
-				return inFlight.user
-			}
-			return user
-		case <-ctx.Done():
-			return user
-		}
-	}
-	flight := &identityRefresh{done: make(chan struct{})}
-	identityRefreshFlight[key] = flight
-	identityRefreshMu.Unlock()
-
-	flight.user, flight.err = doRefreshIdentityFields(ctx, user)
-	close(flight.done)
-
-	identityRefreshMu.Lock()
-	delete(identityRefreshFlight, key)
-	identityRefreshMu.Unlock()
-
-	if flight.err != nil {
-		log.Warn(nil, "userinfo identity refresh failed for user %s (stale values served): %v", key, flight.err)
-		return user
-	}
-	return flight.user
-}
-
-// doRefreshIdentityFields fetches the authoritative identity fields from
-// cs-user (get-profile + auth-identities), applies them to the local columns,
-// and persists via Upsert. Soft semantics: a field with no value in the
-// refresh keeps the local value.
-func doRefreshIdentityFields(ctx context.Context, user *repository.AuthUser) (*repository.AuthUser, error) {
+// fetchUserInfoFromCsUser verifies the caller's access token against cs-user
+// and assembles the identity fields purely from cs-user state (the local DB is
+// not authoritative for userinfo). parse-identity and get-or-create are hard
+// gates — an invalid token or an explicitly unbound identity fails the request.
+// get-profile and auth-identities are soft reads: on failure the login-time
+// claims are served with a warning, never an error to the client.
+func fetchUserInfoFromCsUser(ctx context.Context, token string) (*repository.AuthUser, error) {
 	client := usercenter.GetClient()
 	if client == nil {
-		return user, fmt.Errorf("usercenter client not initialized")
+		return nil, fmt.Errorf("usercenter client not initialized")
 	}
-	profile, err := client.GetProfile(ctx, user.SubjectID)
+	profile, err := client.ParseIdentity(ctx, token)
 	if err != nil {
-		return user, err
+		return nil, err
 	}
-	identities, err := client.ListIdentities(ctx, user.SubjectID)
+	universalID, err := uuid.Parse(profile.UniversalID)
+	if err != nil || universalID == uuid.Nil {
+		return nil, fmt.Errorf("%w: invalid universal_id %q", usercenter.ErrInvalidIdentity, profile.UniversalID)
+	}
+	csUser, _, err := client.GetOrCreate(ctx, &usercenter.Claims{
+		ID:                profile.ID,
+		Sub:               profile.Sub,
+		UniversalID:       profile.UniversalID,
+		Name:              profile.Name,
+		PreferredUsername: profile.PreferredUsername,
+		Email:             profile.Email,
+		Phone:             profile.Phone,
+		Picture:           profile.Picture,
+		Owner:             profile.Owner,
+		Provider:          profile.Provider,
+		ProviderUserID:    profile.ProviderUserID,
+	})
 	if err != nil {
-		return user, err
+		return nil, err
 	}
 
-	if profile.Username != "" {
-		user.Name = profile.Username
-	} else if profile.DisplayName != nil && *profile.DisplayName != "" {
-		user.Name = *profile.DisplayName
+	user := &repository.AuthUser{
+		ID:        universalID,
+		Name:      profile.Name,
+		Phone:     normalizePhone(profile.Phone),
+		Email:     profile.Email,
+		SubjectID: csUser.SubjectID,
 	}
-	if profile.Email != nil && *profile.Email != "" {
-		user.Email = *profile.Email
+	if csUser.SubjectID == "" {
+		return user, nil
 	}
-	if profile.Phone != nil && *profile.Phone != "" {
-		user.Phone = *profile.Phone
-	}
-	for _, identity := range identities {
-		if identity.Provider == "github" {
-			user.GithubID = identity.ProviderUserID
-			if identity.DisplayName != nil {
-				user.GithubName = *identity.DisplayName
-			}
-			break
+
+	up, err := client.GetProfile(ctx, csUser.SubjectID)
+	if err != nil {
+		log.Warn(nil, "userinfo get-profile failed for user %s, serving login-time claims: %v", universalID, err)
+	} else {
+		if up.Username != "" {
+			user.Name = up.Username
+		} else if up.DisplayName != nil && *up.DisplayName != "" {
+			user.Name = *up.DisplayName
+		}
+		if up.Email != nil && *up.Email != "" {
+			user.Email = *up.Email
+		}
+		if up.Phone != nil && *up.Phone != "" {
+			user.Phone = normalizePhone(*up.Phone)
 		}
 	}
-	now := time.Now()
-	user.IdentitySyncedAt = &now
-	if err := repository.GetDB().Upsert(ctx, user, "id", user.ID); err != nil {
-		return user, fmt.Errorf("persist identity refresh: %w", err)
+
+	identities, err := client.ListIdentities(ctx, csUser.SubjectID)
+	if err != nil {
+		log.Warn(nil, "userinfo list-identities failed for user %s: %v", universalID, err)
+	} else {
+		for _, identity := range identities {
+			if identity.Provider == "github" {
+				user.GithubID = identity.ProviderUserID
+				if identity.DisplayName != nil {
+					user.GithubName = *identity.DisplayName
+				}
+				break
+			}
+		}
 	}
 	return user, nil
 }
