@@ -39,14 +39,6 @@
 
             <n-layout-content class="content-area ml-2">
                 <div class="page-content">
-                    <!-- 未绑定手机号提醒：当前不展示，保留代码以便后续恢复 -->
-                    <phone-reminder
-                        v-if="shouldShowPhoneReminder"
-                        class="mb-2"
-                        :text="t('homePage.phoneReminderTitle')"
-                        :action="t('homePage.phoneReminderAction')"
-                        @bind="bindPhone"
-                    />
                     <!-- 个人信息 -->
                     <section
                         class="info"
@@ -66,14 +58,13 @@
                         <common-card :title="t('homePage.basicInfo')">
                             <template #default>
                                 <profile-section
-                                    :github-name="githubName"
+                                    :user-name="userName"
                                     :phone-number="phoneNumber"
+                                    :github-name="githubName"
                                     :user-id="userId"
                                     :invite-code="inviteCode"
                                     :is-private="isPrivate"
                                     :is-zh="isZh"
-                                    @bind-github="bindGithub"
-                                    @bind-phone="bindPhone"
                                     @copy-user-id="copyCode"
                                     @copy-invite-code="copyInviteCode"
                                 />
@@ -306,7 +297,6 @@ import SubscriptionSection from './components/subscription-section.vue';
 import UsageSection from './components/usage-section.vue';
 import ActivitySection from './components/activity-section.vue';
 import CustomDatePicker from './components/custom-date-picker.vue';
-import PhoneReminder from './components/phone-reminder.vue';
 import { useMenu, type MenuKey } from './hook/useMenu';
 import { useProfile } from './hook/useProfile';
 import { useSubscription } from './hook/useSubscription';
@@ -317,7 +307,6 @@ import usageConsumptionSection from './components/usage-consumption-section.vue'
 const { t, locale } = useI18n();
 // const router = useRouter();
 const isZh = computed(() => locale.value === 'zh');
-const shouldShowPhoneReminder = false;
 
 // 使用响应式布局hook
 const { isMobileLayout, isSmallScreen, responsiveClass } = useResponsive();
@@ -340,6 +329,7 @@ const {
     isStar,
     inviteCode,
     githubName,
+    userName,
     phoneNumber,
     userId,
     isPrivate,
@@ -347,8 +337,6 @@ const {
     transferData,
     fetchUserQuota,
     fetchInviteCode,
-    bindGithub,
-    bindPhone,
     copyCode,
     copyInviteCode,
     logout,
@@ -654,22 +642,6 @@ watch(activeMenuKey, (newKey) => {
             display: flex;
             align-items: center;
             flex-wrap: wrap;
-
-            .item-account,
-            .item-phone {
-                display: flex;
-                align-items: center;
-                margin-right: 40px;
-
-                .label {
-                    opacity: 0.7;
-                }
-
-                span {
-                    font-weight: 600;
-                    color: #1876f2;
-                }
-            }
 
             .item-userId {
                 display: flex;

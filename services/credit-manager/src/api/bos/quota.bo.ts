@@ -128,17 +128,6 @@ export interface UserInfoData {
 
 export type GetUserInfoRes = UserInfoData;
 
-export interface GetBindAccountReq {
-    bindType: string;
-    state: string;
-}
-
-export interface GetBindAccountRes {
-    url: string;
-    message: string;
-    success: boolean;
-}
-
 export interface GetInviteCodeRes {
     invite_code: string;
 }

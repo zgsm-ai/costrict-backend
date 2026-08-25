@@ -7,11 +7,6 @@ import type { PricingPlan } from './interface';
 import type { QuotaTypeWithMarketingRules } from '@/api/bos/quota.bo';
 import { FIRST_PURCHASE_ID } from '../Subscribe/const';
 
-export const BING_TYPE = {
-    github: 'github',
-    sms: 'sms',
-} as const;
-
 export const STATUS = {
     success: 'success',
     error: 'error',

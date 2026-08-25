@@ -135,7 +135,7 @@ Data is loaded lazily per menu section via `loadMenuData()` in `home-page.vue`.
 
 Mock data is provided via `vite-plugin-mock` during development (`npm run dev`). All backend API calls are intercepted and return synthetic data from the `mock/` directory.
 
-- **`mock/auth.ts`** — OIDC auth mocks (`/oidc-auth/*`): token, userinfo, bind, invite-code, login URL
+- **`mock/auth.ts`** — OIDC auth mocks (`/oidc-auth/*`): token, userinfo, invite-code, login URL
 - **`mock/quota.ts`** — Quota mocks (`/quota-manager/*`): quota info, audit records, transfer in/out, usage statistics
 - **`mock/order.ts`** — Order mocks (`/quota-order-manager/*`): orders list, create order, payment QR, invoices, quota types
 - **`mock/activity.ts`** — Activity mocks (`/operational_activities/*`): user me, share record

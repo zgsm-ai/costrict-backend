@@ -9,7 +9,6 @@ import task1_step2Img from '../../assets/operation/task1_step2@2x.png';
 import task2_step1Img from '../../assets/operation/task2_step1@2x.png';
 import task3_step1Img from '../../assets/operation/task3_step1@2x.png';
 import task3_step2Img from '../../assets/operation/task3_step2@2x.png';
-import task3_step3Img from '../../assets/operation/task3_step3@2x.png';
 import en_task1_step1Img from '../../assets/operation/task1_step1_en@2x.png';
 import en_task1_step2Img from '../../assets/operation/task1_step2_en@2x.png';
 import en_task2_step1Img from '../../assets/operation/task2_step1_en@2x.png';
@@ -172,53 +171,6 @@ export const createQaContent = (t: (key: string) => string, isZh: boolean): QaCo
                 ]),
             () => h('img', { src: isZh ? task3_step1Img : en_task3_step1Img, class: 'mt-4 w-200' }),
             () => h('img', { src: isZh ? task3_step2Img : en_task3_step2Img, class: 'mt-3 w-200' }),
-        ],
-    },
-    {
-        question: t('rewardPlan.qa.question2'),
-        answer: [
-            () =>
-                h(
-                    'p',
-                    {},
-                    isZh
-                        ? [t('rewardPlan.qa.answer2.before'), t('rewardPlan.qa.answer2.after')]
-                        : [
-                              t('rewardPlan.qa.answer2.before'),
-                              h(
-                                  'a',
-                                  {
-                                      class: 'text-[#4394FF] cursor-pointer',
-                                      href: 'mailto:zgsm@sangfor.com.cn',
-                                  },
-                                  'zgsm@sangfor.com.cn',
-                              ),
-                              t('rewardPlan.qa.answer2.after'),
-                          ],
-                ),
-            () =>
-                h(
-                    'p',
-                    { class: 'mt-2' },
-                    isZh
-                        ? [
-                              t('rewardPlan.qa.accountBinding'),
-                              t('rewardPlan.qa.leftParenthesis'),
-                              t('rewardPlan.qa.linkAddress'),
-                              h(
-                                  'a',
-                                  {
-                                      class: 'text-[#4394FF] cursor-pointer',
-                                      href: homePageUrl,
-                                      target: '_blank',
-                                  },
-                                  homePageUrl,
-                              ),
-                              t('rewardPlan.qa.basicInfoModule'),
-                          ]
-                        : [],
-                ),
-            isZh ? () => h('img', { src: task3_step3Img, class: 'mt-4 w-200' }) : '',
         ],
     },
 ];

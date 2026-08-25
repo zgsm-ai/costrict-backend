@@ -63,9 +63,9 @@
     },
     "homePage": {
         "basicInfo": "Basic Information",
-        "githubAccount": "Github Account:",
-        "bindText": "Bind Now",
+        "userNameLabel": "User Name:",
         "phoneLabel": "Phone Number:",
+        "githubAccount": "Github Account:",
         "userIdLabel": "User ID:",
         "inviteCodeLabel": "Invitation code:",
         "usageTitle": "Usage",
@@ -99,9 +99,7 @@
         "tokens": "Tokens",
         "creditsUsed": "Credits Used",
         "package": "Package",
-        "source": "Source",
-        "phoneReminderTitle": "Bind your phone number to unlock a smoother experience and earn 200 extra Credits",
-        "phoneReminderAction": "Bind Now"
+        "source": "Source"
     },
     "common": {
         "comma": ",",
@@ -182,15 +180,8 @@
         "qa": {
             "question1": "How to check if Credits have been deposited?",
             "answer1": "Go to the \"Usage\" module on the User Info & Quota Usage page and check the \"Credit History\" section for detailed credit deposit records.",
-            "question2": "Why didn't I receive the correct amount of Credits after completing tasks?",
-            "answer2": {
-                "before": "Credits are typically deposited within a few minutes. If you haven't received them after an extended period, please contact us via email: ",
-                "after": ". We will respond as soon as possible."
-            },
-            "accountBinding": "Bind GitHub account in the basic information module of the User Info & Quota Usage page.",
             "goNow": " View Now >> ",
             "linkAddress": "Link: ",
-            "basicInfoModule": ") basic information module to bind GitHub account.",
             "leftParenthesis": "(",
             "rightParenthesis": ")"
         }

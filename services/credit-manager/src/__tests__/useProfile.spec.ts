@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useProfile } from '@/views/Home/hook/useProfile';
 import { setActivePinia, createPinia } from 'pinia';
-import { useUserStore } from '@/store/user';
 
 // Mock the router
 const mockPush = vi.fn();
@@ -25,7 +24,6 @@ vi.mock('naive-ui', () => ({
 // Mock API calls
 vi.mock('@/api/mods/quota.mod', () => ({
     getUserQuota: vi.fn(),
-    getBindAccount: vi.fn(),
     getInviteCode: vi.fn(),
 }));
 
@@ -41,12 +39,11 @@ vi.mock('@/services/auth', () => ({
     },
 }));
 
-import { getUserQuota, getBindAccount, getInviteCode } from '@/api/mods/quota.mod';
+import { getUserQuota, getInviteCode } from '@/api/mods/quota.mod';
 import { copyToClipboard } from '@/utils/copy';
 import { authService } from '@/services/auth';
 
 const mockedGetUserQuota = vi.mocked(getUserQuota);
-const mockedGetBindAccount = vi.mocked(getBindAccount);
 const mockedGetInviteCode = vi.mocked(getInviteCode);
 const mockedCopyToClipboard = vi.mocked(copyToClipboard);
 const mockedLogout = vi.mocked(authService.logout);
@@ -56,25 +53,6 @@ describe('useProfile', () => {
         setActivePinia(createPinia());
         vi.clearAllMocks();
         // Mock window.open
-        // @ts-ignore
-        Object.defineProperty(window, 'location', {
-            value: {
-                href: 'https://example.com',
-                ancestorOrigins: {} as DOMStringList,
-                hash: '',
-                host: '',
-                hostname: '',
-                origin: '',
-                pathname: '',
-                port: '',
-                protocol: '',
-                search: '',
-                assign: vi.fn(),
-                reload: vi.fn(),
-                replace: vi.fn(),
-            } as Location,
-            writable: true,
-        });
         (window as Window).open = mockOpen as (
             url?: string | URL,
             target?: string,
@@ -162,48 +140,6 @@ describe('useProfile', () => {
             await profile.fetchInviteCode();
 
             expect(profile.inviteCode.value).toBe('');
-        });
-    });
-
-    describe('bindAction', () => {
-        it('should redirect to bind URL for github', async () => {
-            mockedGetBindAccount.mockResolvedValue({
-                data: { url: 'https://github.com/bind' },
-            } as any);
-
-            const profile = useProfile();
-            await profile.bindGithub();
-
-            expect(mockedGetBindAccount).toHaveBeenCalledWith({
-                bindType: 'github',
-                state: 'state',
-            });
-            expect(window.location.href).toBe('https://github.com/bind');
-        });
-
-        it('should redirect to bind URL for sms', async () => {
-            mockedGetBindAccount.mockResolvedValue({
-                data: { url: 'https://sms.com/bind' },
-            } as any);
-
-            const profile = useProfile();
-            await profile.bindPhone();
-
-            expect(mockedGetBindAccount).toHaveBeenCalledWith({
-                bindType: 'sms',
-                state: 'state',
-            });
-            expect(window.location.href).toBe('https://sms.com/bind');
-        });
-
-        it('should not redirect when URL is missing', async () => {
-            const originalHref = window.location.href;
-            mockedGetBindAccount.mockResolvedValue({ data: {} } as any);
-
-            const profile = useProfile();
-            await profile.bindGithub();
-
-            expect(window.location.href).toBe(originalHref);
         });
     });
 

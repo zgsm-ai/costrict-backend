@@ -6,9 +6,8 @@ import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
 import { useUserStore } from '@/store/user';
 import { storeToRefs } from 'pinia';
-import { getUserQuota, getBindAccount, getInviteCode } from '@/api/mods/quota.mod';
+import { getUserQuota, getInviteCode } from '@/api/mods/quota.mod';
 import type { QuotaList } from '@/api/bos/quota.bo';
-import { BING_TYPE } from '../const';
 import { copyToClipboard } from '@/utils/copy';
 import { authService } from '@/services/auth';
 
@@ -16,7 +15,7 @@ export function useProfile() {
     const router = useRouter();
     const message = useMessage();
     const userStore = useUserStore();
-    const { githubName, phoneNumber, userId, isPrivate, isTokenInitialized } =
+    const { githubName, userName, phoneNumber, userId, isPrivate, isTokenInitialized } =
         storeToRefs(userStore);
 
     // 配额相关状态
@@ -53,26 +52,6 @@ export function useProfile() {
 
         inviteCode.value = invite_code;
     };
-
-    // 绑定账号操作
-    const bindAction = async (bindType: keyof typeof BING_TYPE) => {
-        const { data } = await getBindAccount({
-            bindType,
-            state: 'state',
-        });
-
-        if (!data.url) {
-            return;
-        }
-
-        window.location.href = data.url;
-    };
-
-    // 绑定GitHub
-    const bindGithub = () => bindAction(BING_TYPE.github);
-
-    // 绑定手机号
-    const bindPhone = () => bindAction(BING_TYPE.sms);
 
     // 复制用户ID
     const copyCode = () => {
@@ -120,6 +99,7 @@ export function useProfile() {
         isStar,
         inviteCode,
         githubName,
+        userName,
         phoneNumber,
         userId,
         isPrivate,
@@ -131,8 +111,6 @@ export function useProfile() {
         // 方法
         fetchUserQuota,
         fetchInviteCode,
-        bindGithub,
-        bindPhone,
         copyCode,
         copyInviteCode,
         logout,

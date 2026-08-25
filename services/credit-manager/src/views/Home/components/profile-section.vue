@@ -1,6 +1,14 @@
 <template>
     <div class="profile-section">
         <div class="info-item">
+            <div class="item-user-name">
+                <div class="label">{{ t('homePage.userNameLabel') }}</div>
+                <span :class="{ 'ml-1': !isZh }">{{ userName || '-' }}</span>
+            </div>
+            <div class="item-phone">
+                <div class="label">{{ t('homePage.phoneLabel') }}</div>
+                <span :class="{ 'ml-1': !isZh }">{{ phoneNumber || '-' }}</span>
+            </div>
             <div
                 class="item-account"
                 v-if="!isPrivate"
@@ -8,32 +16,7 @@
                 <div class="label">
                     {{ t('homePage.githubAccount') }}
                 </div>
-                <span
-                    :style="{
-                        color: !githubName ? '#1876F2' : '#fff',
-                        cursor: !githubName ? 'pointer' : 'default',
-                    }"
-                    :class="{ 'ml-1': !isZh }"
-                    @click="!githubName && handleBindGithub()"
-                >
-                    {{ githubName || t('homePage.bindText') }}
-                </span>
-            </div>
-            <div
-                class="item-phone"
-                v-if="isZh"
-            >
-                <div class="label">{{ t('homePage.phoneLabel') }}</div>
-                <span
-                    :style="{
-                        color: !phoneNumber ? '#1876F2' : '#fff',
-                        cursor: !phoneNumber ? 'pointer' : 'default',
-                    }"
-                    :class="{ 'ml-1': !isZh }"
-                    @click="!phoneNumber && handleBindPhone()"
-                >
-                    {{ phoneNumber || t('homePage.bindText') }}
-                </span>
+                <span :class="{ 'ml-1': !isZh }">{{ githubName || '-' }}</span>
             </div>
             <div class="item-userId max-w-[100%]">
                 <div class="label whitespace-nowrap">{{ t('homePage.userIdLabel') }}</div>
@@ -76,7 +59,7 @@
 <script setup lang="ts">
 /**
  * @file profile-section.vue
- * @description 个人信息组件 - 显示用户基本信息和绑定状态
+ * @description 个人信息组件 - 显示用户基本信息
  */
 import { useI18n } from 'vue-i18n';
 import { NIcon } from 'naive-ui';
@@ -87,16 +70,18 @@ const { t } = useI18n();
 // Props 定义
 const props = withDefaults(
     defineProps<{
-        githubName?: string;
+        userName?: string;
         phoneNumber?: string;
+        githubName?: string;
         userId: string;
         inviteCode: string;
         isPrivate: boolean;
         isZh: boolean;
     }>(),
     {
-        githubName: undefined,
+        userName: undefined,
         phoneNumber: undefined,
+        githubName: undefined,
         userId: '',
         inviteCode: '',
         isPrivate: false,
@@ -106,21 +91,11 @@ const props = withDefaults(
 
 // Emits 定义
 const emit = defineEmits<{
-    'bind-github': [];
-    'bind-phone': [];
     'copy-user-id': [value: string];
     'copy-invite-code': [value: string];
 }>();
 
 // 事件处理函数
-const handleBindGithub = () => {
-    emit('bind-github');
-};
-
-const handleBindPhone = () => {
-    emit('bind-phone');
-};
-
 const handleCopyUserId = () => {
     emit('copy-user-id', props.userId);
 };
@@ -139,7 +114,7 @@ const handleCopyInviteCode = () => {
         column-gap: 40px;
         row-gap: 10px;
 
-        .item-account,
+        .item-user-name,
         .item-phone {
             display: flex;
             align-items: center;
@@ -150,7 +125,19 @@ const handleCopyInviteCode = () => {
 
             span {
                 font-weight: 600;
-                color: #1876f2;
+            }
+        }
+
+        .item-account {
+            display: flex;
+            align-items: center;
+
+            .label {
+                opacity: 0.7;
+            }
+
+            span {
+                font-weight: 600;
             }
         }
 

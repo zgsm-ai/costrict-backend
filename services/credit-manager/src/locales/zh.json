@@ -63,9 +63,9 @@
     },
     "homePage": {
         "basicInfo": "基本信息",
-        "githubAccount": "GitHub账号：",
-        "bindText": "立即绑定",
+        "userNameLabel": "用户名：",
         "phoneLabel": "手机号：",
+        "githubAccount": "GitHub账号：",
         "userIdLabel": "用户ID：",
         "inviteCodeLabel": "邀请码：",
         "usageTitle": "用量概览",
@@ -99,9 +99,7 @@
         "tokens": "Tokens",
         "creditsUsed": "Credits消耗",
         "package": "套餐",
-        "source": "来源",
-        "phoneReminderTitle": "绑定手机号，解锁更流畅的服务体验，额外获赠200 Credits",
-        "phoneReminderAction": "立即绑定"
+        "source": "来源"
     },
     "common": {
         "comma": "，",
@@ -182,15 +180,8 @@
         "qa": {
             "question1": "如何查看Credit是否到账？",
             "answer1": "在用户信息&配额用量页面的\"用量\"模块的\"历史记录\"页面查看具体的额度到账情况。",
-            "question2": "为什么任务都做了，Credit 获得的额度对不上？",
-            "answer2": {
-                "before": "如果用户在登录的时候使用的是手机号，在 Github 点赞收藏 CoStrict 使用的是 Github 账号，两个账号没有做关联，因此 Credits 被分别发放到两个账号中， 此时只需要做一个账号绑定，即可看到全部额度。",
-                "after": ""
-            },
-            "accountBinding": "在用户信息&配额用量页面的基本信息模块绑定 Github 账号即可。",
             "goNow": "立即前往 >> ",
             "linkAddress": "链接地址：",
-            "basicInfoModule": "）的基本信息模块绑定 Github 账号即可。",
             "leftParenthesis": "（",
             "rightParenthesis": "）"
         }

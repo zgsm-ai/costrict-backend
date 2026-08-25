@@ -28,7 +28,7 @@
 
 外网转出Credit配额
 
-4. 外网环境的VSCode安装Costrict插件，使用Github登录（不推荐手机号，否则还要后续兑换Credit额度还需要绑定Github账号）
+4. 外网环境的VSCode安装Costrict插件，使用Github登录
 
 ![alt text](md/images/private/image5.png)
 

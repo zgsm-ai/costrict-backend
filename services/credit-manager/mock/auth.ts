@@ -33,16 +33,6 @@ export default [
             }),
     },
     {
-        url: '/oidc-auth/api/v1/manager/bind/account',
-        method: 'get',
-        response: () =>
-            successResponse({
-                url: 'https://example.com/bind?state=mock',
-                message: 'Binding URL generated',
-                success: true,
-            }),
-    },
-    {
         url: '/oidc-auth/api/v1/manager/invite-code',
         method: 'get',
         response: () =>

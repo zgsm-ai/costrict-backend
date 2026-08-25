@@ -49,6 +49,7 @@
         "github-markdown-css": "^5.8.1",
         "happy-dom": "^20.7.0",
         "highlight": "^0.2.4",
+        "highlight.js": "^11.11.1",
         "html-to-image": "^1.11.13",
         "jiti": "^2.4.2",
         "js-cookie": "^3.0.5",
