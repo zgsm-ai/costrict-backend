@@ -68,6 +68,13 @@ func initializeAllConfigurations(cfgFile string) (*config.AppConfig, error) {
 
 	utils.SetGlobalConfig(cfg)
 
+	// RSA key loading is unconditional and lazy (sync.Once); fail fast at
+	// startup so a missing or broken encrypt.privateKey surfaces now rather
+	// than at the first token sign/verify call.
+	if _, err := utils.GetEncryptKeyManager(); err != nil {
+		return nil, fmt.Errorf("failed to load encryption keys: %w", err)
+	}
+
 	if err := initLogger(&cfg.Log); err != nil {
 		return nil, fmt.Errorf("failed to initialize logger: %w", err)
 	}

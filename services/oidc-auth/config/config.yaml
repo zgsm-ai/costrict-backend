@@ -123,14 +123,15 @@ encrypt:
   # AES encryption key (must be exactly 32 characters/bytes)
   aesKey: "pUD8mylndVVK7hTNt56VZMkNrppinbNg"  # need 32 bit
 
-  # Enable RSA encryption. "true" = enabled, "false" = disabled
-  enableRsa: "false"
-
-  # Path to RSA private key file for decryption
+  # RSA private key for token signing. Generate one with:
+  #   openssl genrsa -out private.pem 2048
+  # (the public key is derived from the private key automatically; keep the
+  #  private key secret — never commit it.)
+  # The value accepts three forms:
+  #   - a path to a PEM file            (e.g. "config/private.pem")
+  #   - inline PEM content (block scalar |)
+  #   - base64-encoded PEM
   privateKey: "config/private.pem"
-
-  # Path to RSA public key file for encryption
-  publicKey: "config/public.pem"
 
 # QuotaManager service configuration
 quotaManager:

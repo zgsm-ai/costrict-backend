@@ -108,9 +108,7 @@ docker run -d \
 |                   | `SYNCSTAR_REPO` | 仓库名称                  | `zgsm` |
 |                   | `SYNCSTAR_INTERVAL` | 同步间隔(分钟)              | `1` |
 | **加密配置**          | `ENCRYPT_AESKEY` | AES 密钥(32位)           | - |
-|                   | `ENCRYPT_ENABLERSA` | 启用 RSA                | `false` |
-|                   | `ENCRYPT_PRIVATEKEY` | RSA 私钥文件路径            | `config/private.pem` |
-|                   | `ENCRYPT_PUBLICKEY` | RSA 公钥文件路径            | `config/public.pem` |
+|                   | `ENCRYPT_PRIVATEKEY` | RSA 私钥：PEM 文件路径、内联 PEM 或 base64(PEM) | `config/private.pem` |
 | **配额管理器**         | `QUOTAMANAGER_BASEURL` | 配额管理器服务基础URL        | - |
 | **日志配置**          | `LOG_LEVEL` | 日志级别                  | `info` |
 |                   | `LOG_FILENAME` | 日志文件路径                | `logs/app.log` |
@@ -187,8 +185,8 @@ sequenceDiagram
     O->>C: 用 access_token 获取用户信息
     O->>O: 创建 Device{AccessToken=casdoor_token, Status=logged_out, State=original_state}
     O->>C: 更新 Casdoor 中的用户
-    O->>O: generateTokenPair() → oidc-auth 自签发 access_token + refresh_token
-    O->>O: updateUserInfoMid() → Device{AccessToken=自签发, AccessTokenHash=hash, Status=logged_in}
+    O->>O: generateTokenPair() → casdoor access_token + oidc-auth 自签名 refresh_token
+    O->>O: updateUserInfoMid() → Device{AccessToken=casdoor_token, RefreshToken=轮换后的 casdoor refresh（内部）, Status=logged_in}
     O->>DB: Upsert 用户及更新后的 device
     O-->>P: 302 重定向到 /credit/manager?state={access_token_hash}
 

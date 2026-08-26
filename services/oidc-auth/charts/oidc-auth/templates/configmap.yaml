@@ -46,9 +46,7 @@ data:
       maxOpenConns: {{ .Values.database.maxOpenConns }}
     encrypt:
       aesKey: {{ .Values.encrypt.aesKey | quote }}
-      enableRsa: {{ .Values.encrypt.enableRsa | quote }}
       privateKey: {{ .Values.encrypt.privateKey | quote }}
-      publicKey: {{ .Values.encrypt.publicKey | quote }}
     log:
       level: {{ .Values.log.level | quote }}
       filename: {{ .Values.log.filename | quote }}

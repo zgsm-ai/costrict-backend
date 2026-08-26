@@ -14,9 +14,11 @@ import (
 	"github.com/zgsm-ai/oidc-auth/internal/repository"
 )
 
-// TokenTypeBearer Token types
+// Token types
 const (
-	TokenTypeBearer = "Bearer"
+	TokenTypeBearer     = "Bearer"
+	TokenTypeRefresh    = "refresh_token"
+	TokenTypeAccess     = "access_token"
 )
 
 // AppClaims defines the payload of a AESEncrypt.
@@ -34,6 +36,7 @@ type AppClaims struct {
 	UserCode      string   `json:"user_code,omitempty"`
 	DeviceCode    string   `json:"device_code,omitempty"`
 	TokenType     string   `json:"token_type,omitempty"`
+	MachineCode   string   `json:"machine_code,omitempty"`
 	VsCodeVersion string   `json:"vscode_version,omitempty"`
 	jwt.RegisteredClaims
 }
@@ -92,7 +95,7 @@ func GenerateTokenPairWithOptions(subject, issuer string, audience []string, cus
 		accessMapClaims[key] = value
 	}
 
-	accessMapClaims["token_type"] = "access_token"
+	accessMapClaims["token_type"] = TokenTypeAccess
 
 	accessToken, err := CreateToken(accessMapClaims, privateKeyPEM)
 	if err != nil {
@@ -119,7 +122,7 @@ func GenerateTokenPairWithOptions(subject, issuer string, audience []string, cus
 		"nbf":         now.Unix(),
 		"iat":         now.Unix(),
 		"jti":         refreshJTI,
-		"token_type":  "refresh_token",
+		"token_type":  TokenTypeRefresh,
 		"user_code":   userCode,
 		"device_code": deviceCode,
 	}
@@ -176,6 +179,97 @@ func GenerateTokenPairByUser(user *repository.AuthUser, deviceIndex int) (*Token
 		keyManager.GetPrivateKeyPEM(),
 		&tokenOptions,
 	)
+}
+
+// GenerateRefreshToken mints a stateless, self-signed client refresh token
+// (Plan A). It is never stored or consumed server-side: the stored casdoor
+// refresh token rotates internally on every refresh, so multiple consumers
+// sharing one device login can each refresh without invalidating the others,
+// and the token survives re-login. exp mirrors the source token's expiry so
+// clients (e.g. cs-cloud's unverified ParseJWT check) see the same lifetime.
+func GenerateRefreshToken(user *repository.AuthUser, device repository.Device, exp time.Time) (string, error) {
+	if user == nil {
+		return "", errors.New("user cannot be nil")
+	}
+	keyManager, err := GetEncryptKeyManager()
+	if err != nil {
+		return "", fmt.Errorf("failed to get AESEncrypt key manager: %w", err)
+	}
+	if keyManager.GetPrivateKeyPEM() == "" {
+		return "", errors.New("RSA private key is not loaded")
+	}
+	now := time.Now()
+	claims := AppClaims{
+		MachineCode:  device.MachineCode,
+		VsCodeVersion: device.VSCodeVersion,
+		TokenType:    TokenTypeRefresh,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "oidc-auth",
+			Subject:   user.ID.String(),
+			ExpiresAt: jwt.NewNumericDate(exp),
+			NotBefore: jwt.NewNumericDate(now),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	}
+	return CreateToken(claims, keyManager.GetPrivateKeyPEM())
+}
+
+// VerifyRefreshToken validates a self-signed client refresh token: RS256
+// signature, exp/nbf, and token_type == refresh_token. Returns its claims on
+// success; any failure is an invalid token (401).
+func VerifyRefreshToken(tokenString string) (*AppClaims, error) {
+	if tokenString == "" {
+		return nil, errors.New("token cannot be empty")
+	}
+	keyManager, err := GetEncryptKeyManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get AESEncrypt key manager: %w", err)
+	}
+	publicKeyPEM := keyManager.GetPublicKeyPEM()
+	if publicKeyPEM == "" {
+		return nil, errors.New("RSA public key is not loaded")
+	}
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(publicKeyPEM))
+	if err != nil {
+		return nil, fmt.Errorf("could not parse RSA public key: %w", err)
+	}
+	claims := &AppClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return publicKey, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !token.Valid {
+		return nil, errors.New("invalid token")
+	}
+	if claims.TokenType != TokenTypeRefresh {
+		return nil, errors.New("token is not a refresh token")
+	}
+	return claims, nil
+}
+
+// ExtractTokenExp decodes (without verifying) a token's exp claim. Used to
+// mirror the casdoor refresh token's expiry onto the self-signed client token.
+func ExtractTokenExp(tokenString string) (time.Time, error) {
+	if tokenString == "" {
+		return time.Time{}, errors.New("token cannot be empty")
+	}
+	var claims jwt.MapClaims
+	if _, _, err := jwt.NewParser().ParseUnverified(tokenString, &claims); err != nil {
+		return time.Time{}, fmt.Errorf("failed to decode token: %w", err)
+	}
+	exp, err := claims.GetExpirationTime()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to read exp: %w", err)
+	}
+	if exp == nil {
+		return time.Time{}, errors.New("token has no exp claim")
+	}
+	return exp.Time, nil
 }
 
 func HashToken(token string) string {

@@ -197,20 +197,20 @@ func (s *Server) callbackHandler(c *gin.Context) {
 			fmt.Errorf("device not found for machine_code=%s, vscode_version=%s", parameterCarrier.MachineCode, parameterCarrier.VscodeVersion))
 		return
 	}
-	tokenPair, err := generateTokenPair(ctx, user, deviceIndex)
+	clientPair, internalPair, err := generateTokenPair(ctx, user, deviceIndex)
 	if err != nil {
 		response.HandleError(c, http.StatusInternalServerError, errs.ErrTokenGenerate,
 			fmt.Errorf("failed to generate token pair: %v", err))
 		return
 	}
 	user.Devices[deviceIndex].Status = constants.LoginStatusLoggedIn
-	if err := updateUserAndSave(ctx, user, deviceIndex, tokenPair); err != nil {
+	if err := updateUserAndSave(ctx, user, deviceIndex, internalPair); err != nil {
 		response.HandleError(c, http.StatusInternalServerError, errs.ErrUpdateInfo,
 			fmt.Errorf("failed to update user with final token: %v", err))
 		return
 	}
 
-	tokenHash := utils.HashToken(tokenPair.AccessToken)
+	tokenHash := utils.HashToken(clientPair.AccessToken)
 	redirectURL := providerInstance.GetEndpoint(false) + constants.LoginSuccessPath + "?state=" + tokenHash
 	log.Info(c, "login success, redirect to: %s, state: %s", redirectURL, tokenHash)
 	c.Redirect(http.StatusFound, redirectURL)

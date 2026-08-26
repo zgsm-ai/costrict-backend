@@ -4,11 +4,15 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/zgsm-ai/oidc-auth/internal/config"
@@ -51,26 +55,73 @@ func SetGlobalConfig(cfg *config.AppConfig) {
 }
 
 func (m *EncryptKeyManager) loadKeys() error {
-	if !m.Config.EnableRsa {
-		return nil
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	privateKeyBytes, err := os.ReadFile(m.Config.PrivateKeyPath)
-	if err != nil {
-		return fmt.Errorf("failed to read private key file: %v", err)
+	keyValue := strings.TrimSpace(m.Config.PrivateKey)
+	if keyValue == "" {
+		return errors.New("failed to load private key: empty encrypt.privateKey value")
+	}
+
+	// encrypt.privateKey accepts three forms: a path to a PEM file, the inline
+	// PEM content itself, or base64(PEM). Inline PEM always carries the BEGIN
+	// marker; a non-readable value falls back to base64 decoding. The fallback
+	// must not gate on os.IsNotExist: a real base64(PEM) string is one huge
+	// filename component, and Windows/Linux reject it with ERROR_INVALID_NAME /
+	// ENAMETOOLONG rather than a not-exist error.
+	var privateKeyBytes []byte
+	if strings.HasPrefix(keyValue, "-----BEGIN") {
+		privateKeyBytes = []byte(keyValue)
+	} else {
+		var err error
+		privateKeyBytes, err = os.ReadFile(keyValue)
+		if err != nil {
+			decoded, derr := base64.StdEncoding.DecodeString(keyValue)
+			if derr != nil {
+				return fmt.Errorf("failed to read private key file %s: %v", keyValue, err)
+			}
+			privateKeyBytes = decoded
+		}
 	}
 	m.privateKeyPEM = string(privateKeyBytes)
 
-	publicKeyBytes, err := os.ReadFile(m.Config.PublicKeyPath)
+	publicKeyPEM, err := derivePublicKeyPEM(privateKeyBytes)
 	if err != nil {
-		return fmt.Errorf("failed to read public key file: %v", err)
+		return fmt.Errorf("failed to derive public key from private key: %v", err)
 	}
-	m.publicKeyPEM = string(publicKeyBytes)
+	m.publicKeyPEM = publicKeyPEM
 	m.aesKey = m.Config.AesKey
 
 	return nil
+}
+
+// derivePublicKeyPEM extracts the public key embedded in an RSA private key PEM
+// and re-encodes it as a PKIX "PUBLIC KEY" PEM block, so callers never need a
+// separate public key file.
+func derivePublicKeyPEM(privateKeyPEM []byte) (string, error) {
+	block, _ := pem.Decode(privateKeyPEM)
+	if block == nil {
+		return "", errors.New("failed to decode private key PEM")
+	}
+
+	var privKey *rsa.PrivateKey
+	if parsed, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		privKey = parsed
+	} else if parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		var ok bool
+		privKey, ok = parsed.(*rsa.PrivateKey)
+		if !ok {
+			return "", errors.New("private key is not RSA")
+		}
+	} else {
+		return "", errors.New("unsupported private key format")
+	}
+
+	pubDER, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal public key: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})), nil
 }
 
 func (m *EncryptKeyManager) GetPrivateKeyPEM() string {

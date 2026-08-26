@@ -109,9 +109,7 @@ Complete environment variable configuration for containerized deployment:
 |                             | `SYNCSTAR_REPO` | Repository name | `zgsm` |
 |                             | `SYNCSTAR_INTERVAL` | Sync interval (minutes) | `1` |
 | **Encryption**              | `ENCRYPT_AESKEY` | AES key (32 characters) | - |
-|                             | `ENCRYPT_ENABLERSA` | Enable RSA | `false` |
-|                             | `ENCRYPT_PRIVATEKEY` | RSA private key file path | `config/private.pem` |
-|                             | `ENCRYPT_PUBLICKEY` | RSA public key file path | `config/public.pem` |
+|                             | `ENCRYPT_PRIVATEKEY` | RSA private key: PEM file path, inline PEM, or base64(PEM) | `config/private.pem` |
 | **Quota Manager**           | `QUOTAMANAGER_BASEURL` | QuotaManager service base URL | - |
 | **Logging**                 | `LOG_LEVEL` | Log level | `info` |
 |                             | `LOG_FILENAME` | Log file path | `logs/app.log` |
@@ -183,8 +181,8 @@ sequenceDiagram
     O->>C: Get user info with access_token
     O->>O: Create Device{AccessToken=casdoor_token, Status=logged_out, State=original_state}
     O->>C: Update user in Casdoor
-    O->>O: generateTokenPair() → oidc-auth self-signed access_token + refresh_token
-    O->>O: updateUserInfoMid() → Device{AccessToken=self_signed, AccessTokenHash=hash, Status=logged_in}
+    O->>O: generateTokenPair() → casdoor access_token + oidc-auth self-signed refresh_token
+    O->>O: updateUserInfoMid() → Device{AccessToken=casdoor_token, RefreshToken=rotated casdoor refresh (internal), Status=logged_in}
     O->>DB: Upsert user with updated device
     O-->>P: 302 Redirect to /credit/manager?state={access_token_hash}
 

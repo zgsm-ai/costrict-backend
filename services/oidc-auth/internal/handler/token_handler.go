@@ -2,12 +2,14 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/zgsm-ai/oidc-auth/internal/constants"
 	"github.com/zgsm-ai/oidc-auth/internal/providers"
@@ -99,9 +101,13 @@ func firstGetToken(machineCode, vscodeVersion, state string) (*utils.TokenPair, 
 		index := findDeviceIndex(user, machineCode, vscodeVersion)
 		if index != -1 {
 			log.Info(ctx, "firstGetToken: found existing LoggedIn device, returning token from DB")
+			clientRefreshToken, err := mintClientRefreshToken(user, index, user.Devices[index].RefreshToken)
+			if err != nil {
+				return nil, http.StatusInternalServerError, err
+			}
 			return &utils.TokenPair{
 				AccessToken:  user.Devices[index].AccessToken,
-				RefreshToken: user.Devices[index].RefreshToken,
+				RefreshToken: clientRefreshToken,
 			}, http.StatusOK, nil
 		}
 	}
@@ -120,9 +126,13 @@ func firstGetToken(machineCode, vscodeVersion, state string) (*utils.TokenPair, 
 		index := findDeviceIndex(user, machineCode, vscodeVersion)
 		if index != -1 {
 			log.Info(ctx, "firstGetToken: found LoggedIn device by state, returning token from DB")
+			clientRefreshToken, err := mintClientRefreshToken(user, index, user.Devices[index].RefreshToken)
+			if err != nil {
+				return nil, http.StatusInternalServerError, err
+			}
 			return &utils.TokenPair{
 				AccessToken:  user.Devices[index].AccessToken,
-				RefreshToken: user.Devices[index].RefreshToken,
+				RefreshToken: clientRefreshToken,
 			}, http.StatusOK, nil
 		}
 	}
@@ -149,22 +159,22 @@ func firstGetToken(machineCode, vscodeVersion, state string) (*utils.TokenPair, 
 		return nil, http.StatusUnauthorized, errs.ErrInfoInvalidToken
 	}
 
-	tokenPair, err := generateTokenPair(ctx, user, index)
+	clientPair, internalPair, err := generateTokenPair(ctx, user, index)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
-	if tokenPair == nil {
+	if clientPair == nil {
 		return nil, http.StatusInternalServerError, errs.ErrInfoGenerateToken
 	}
 
 	user.Devices[index].Status = constants.LoginStatusLoggedIn
-	if err := updateUserAndSave(ctx, user, index, tokenPair); err != nil {
+	if err := updateUserAndSave(ctx, user, index, internalPair); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
 	return &utils.TokenPair{
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
+		AccessToken:  clientPair.AccessToken,
+		RefreshToken: clientPair.RefreshToken,
 	}, http.StatusOK, nil
 }
 
@@ -172,6 +182,28 @@ func tokenRefresh(refreshToken string) (*utils.TokenPair, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Primary path: self-signed client refresh token (Plan A). It is stateless —
+	// verified by signature, then mapped back to the device row via its claims,
+	// so it survives re-login and coexists with other consumers' tokens.
+	if claims, err := utils.VerifyRefreshToken(refreshToken); err == nil {
+		userID, err := uuid.Parse(claims.Subject)
+		if err != nil {
+			return nil, http.StatusUnauthorized, errs.ErrInfoInvalidToken
+		}
+		user, err := repository.GetDB().GetUserByField(ctx, "id", userID)
+		if err != nil || user == nil {
+			return nil, http.StatusUnauthorized, errs.ErrInfoInvalidToken
+		}
+		index := findDeviceIndex(user, claims.MachineCode, claims.VsCodeVersion)
+		if index == -1 || user.Devices[index].RefreshToken == "" {
+			// Device gone or logged out (logout clears the stored refresh token).
+			return nil, http.StatusUnauthorized, errs.ErrInfoInvalidToken
+		}
+		return refreshWithDevice(ctx, user, index)
+	}
+
+	// Legacy fallback: clients still holding the raw (pre-migration) refresh
+	// token. Refreshing migrates them onto the self-signed scheme.
 	user, index, err := utils.GetUserByTokenHash(ctx, refreshToken, "refresh_token_hash")
 	if err != nil {
 		return nil, http.StatusUnauthorized, err
@@ -179,32 +211,76 @@ func tokenRefresh(refreshToken string) (*utils.TokenPair, int, error) {
 	if user == nil {
 		return nil, http.StatusUnauthorized, errs.ErrInfoInvalidToken
 	}
+	return refreshWithDevice(ctx, user, index)
+}
 
-	tokenPair, err := generateTokenPair(ctx, user, index)
+// refreshWithDevice rotates the stored provider refresh token, persists the new
+// internal tokens in the device row, and returns the client-facing pair.
+func refreshWithDevice(ctx context.Context, user *repository.AuthUser, index int) (*utils.TokenPair, int, error) {
+	clientPair, internalPair, err := generateTokenPair(ctx, user, index)
 	if err != nil {
-		return nil, http.StatusInternalServerError, err
+		// A concurrent refresh already rotated the provider token; re-read the
+		// device row (the winner persisted the fresh token) and retry once.
+		if errors.Is(err, providers.ErrTokenRotated) {
+			if fresh, freshIndex, rerr := reReadDevice(ctx, user.ID,
+				user.Devices[index].MachineCode, user.Devices[index].VSCodeVersion); rerr == nil {
+				user, index = fresh, freshIndex
+				clientPair, internalPair, err = generateTokenPair(ctx, user, index)
+			}
+		}
+		if err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
 	}
 
-	if err := updateUserAndSave(ctx, user, index, tokenPair); err != nil {
+	if err := updateUserAndSave(ctx, user, index, internalPair); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
 	return &utils.TokenPair{
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
+		AccessToken:  clientPair.AccessToken,
+		RefreshToken: clientPair.RefreshToken,
 	}, http.StatusOK, nil
 }
 
-func generateTokenPair(ctx context.Context, user *repository.AuthUser, index int) (*utils.TokenPair, error) {
+// reReadDevice reloads the user row by ID and resolves the device index again.
+func reReadDevice(ctx context.Context, userID uuid.UUID, machineCode, vscodeVersion string) (*repository.AuthUser, int, error) {
+	fresh, err := repository.GetDB().GetUserByField(ctx, "id", userID)
+	if err != nil || fresh == nil {
+		return nil, -1, errs.ErrInfoInvalidToken
+	}
+	index := findDeviceIndex(fresh, machineCode, vscodeVersion)
+	if index == -1 {
+		return nil, -1, errs.ErrInfoInvalidToken
+	}
+	return fresh, index, nil
+}
+
+// mintClientRefreshToken builds a fresh self-signed client refresh token whose
+// expiry mirrors sourceToken's exp claim, defaulting to 30 days when that token
+// has no decodable exp.
+func mintClientRefreshToken(user *repository.AuthUser, index int, sourceToken string) (string, error) {
+	exp := time.Now().Add(30 * 24 * time.Hour)
+	if parsedExp, err := utils.ExtractTokenExp(sourceToken); err == nil {
+		exp = parsedExp
+	}
+	return utils.GenerateRefreshToken(user, user.Devices[index], exp)
+}
+
+// generateTokenPair returns the pair served to the client and the pair
+// persisted in the device row. For custom (casdoor) devices these differ: the
+// client gets a self-signed refresh token while the internal pair holds the
+// rotated casdoor access/refresh tokens.
+func generateTokenPair(ctx context.Context, user *repository.AuthUser, index int) (*utils.TokenPair, *utils.TokenPair, error) {
 	if user.Devices[index].TokenProvider == "custom" {
-		return GenerateTokenPairByCustom(ctx, user, index)
+		return generateCustomTokenPair(ctx, user, index)
 	}
 
 	tokenPair, err := utils.GenerateTokenPairByUser(user, index)
 	if err != nil || tokenPair == nil {
-		return nil, fmt.Errorf("%s, %v", errs.ErrInfoGenerateToken, err)
+		return nil, nil, fmt.Errorf("%s, %v", errs.ErrInfoGenerateToken, err)
 	}
-	return tokenPair, nil
+	return tokenPair, tokenPair, nil
 }
 
 func findDeviceIndex(user *repository.AuthUser, machineCode, vscodeVersion string) int {
@@ -281,26 +357,45 @@ func getTokenFromHeader(c *gin.Context) (string, error) {
 	return tokenString, nil
 }
 
-func GenerateTokenPairByCustom(ctx context.Context, user *repository.AuthUser, index int) (*utils.TokenPair, error) {
+// generateCustomTokenPair rotates the stored provider (casdoor) refresh token
+// and returns the client-facing pair (casdoor access + self-signed refresh) and
+// the internal pair to persist (casdoor access + rotated casdoor refresh). The
+// casdoor refresh token is never handed to clients, so multiple consumers share
+// one device login without invalidating each other.
+func generateCustomTokenPair(ctx context.Context, user *repository.AuthUser, index int) (*utils.TokenPair, *utils.TokenPair, error) {
 	if user == nil {
-		return nil, fmt.Errorf("parameter user is nil")
+		return nil, nil, fmt.Errorf("parameter user is nil")
 	}
 	if len(user.Devices) <= index {
-		return nil, fmt.Errorf("device not found")
+		return nil, nil, fmt.Errorf("device not found")
 	}
-	refreshToken := user.Devices[index].RefreshToken
+	storedRefreshToken := user.Devices[index].RefreshToken
+	if storedRefreshToken == "" {
+		return nil, nil, errs.ErrInfoInvalidToken
+	}
 	provider := user.Devices[index].Provider
 	oauthManager := providers.GetManager()
 	providerInstance, err := oauthManager.GetProvider(provider)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	token, err := providerInstance.RefreshToken(ctx, refreshToken)
+	token, err := providerInstance.RefreshToken(ctx, storedRefreshToken)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	// Mirror the rotated casdoor refresh token's expiry so clients observe the
+	// same lifetime they would have with the raw token.
+	clientRefreshToken, err := mintClientRefreshToken(user, index, token.RefreshToken)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	return &utils.TokenPair{
-		AccessToken:  token.AccessToken,
-		RefreshToken: token.RefreshToken,
-	}, nil
+			AccessToken:  token.AccessToken,
+			RefreshToken: clientRefreshToken,
+		}, &utils.TokenPair{
+			AccessToken:  token.AccessToken,
+			RefreshToken: token.RefreshToken,
+		}, nil
 }

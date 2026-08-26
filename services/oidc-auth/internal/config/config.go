@@ -78,10 +78,10 @@ type GithubStarConfig struct {
 }
 
 type EncryptConfig struct {
-	PrivateKeyPath string `json:"privateKey" mapstructure:"privateKey"`
-	PublicKeyPath  string `json:"publicKey" mapstructure:"publicKey"`
-	AesKey         string `json:"aesKey" mapstructure:"aesKey" validate:"required"`
-	EnableRsa      bool   `json:"enableRsa" mapstructure:"enableRsa"`
+	// PrivateKey is either a path to a PEM file, the inline PEM content, or
+	// base64(PEM) — see pkg/utils/entrypt.go loadKeys for the resolution rule.
+	PrivateKey string `json:"privateKey" mapstructure:"privateKey"`
+	AesKey     string `json:"aesKey" mapstructure:"aesKey" validate:"required"`
 }
 
 type SMSConfig struct {

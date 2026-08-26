@@ -3,7 +3,9 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +17,11 @@ import (
 	"github.com/zgsm-ai/oidc-auth/internal/repository"
 	"github.com/zgsm-ai/oidc-auth/pkg/utils"
 )
+
+// ErrTokenRotated marks a casdoor refresh failure caused by server-side token
+// rotation (single-use refresh tokens): a concurrent refresh already consumed
+// this token. Callers may re-read the device row and retry once.
+var ErrTokenRotated = errors.New("refresh token is invalid or revoked")
 
 type CasdoorFactory struct{}
 
@@ -201,7 +208,18 @@ func (s *CasdoorProvider) RefreshToken(ctx context.Context, refreshToken string)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get token, status: %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		var tokenErr struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if err := json.Unmarshal(body, &tokenErr); err == nil {
+			if tokenErr.Error == "invalid_grant" ||
+				strings.Contains(tokenErr.ErrorDescription, "refresh token is invalid or revoked") {
+				return nil, ErrTokenRotated
+			}
+		}
+		return nil, fmt.Errorf("failed to get token, status: %d: %s", resp.StatusCode, string(body))
 	}
 
 	var tokenResp TokenResponse
@@ -222,8 +240,4 @@ func (s *CasdoorProvider) GetEndpoint(isInternal bool) string {
 		return s.config.InternalURL
 	}
 	return s.config.BaseURL
-}
-
-func (s *CasdoorProvider) ValidateToken(ctx context.Context, accessToken string) error {
-	return fmt.Errorf("oauth oauth does not support refresh token")
 }
