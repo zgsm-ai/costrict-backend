@@ -269,12 +269,26 @@ func (s *Server) getUserInviteCodeHandler(c *gin.Context) {
 
 		// Serve the authoritative code from the row: when a concurrent request
 		// claimed it first, this adopts theirs instead of our (lost) one.
+		// ClaimInviteCode no-ops when the row is absent (its conditional UPDATE
+		// matches nothing), so a missing row must be repaired below — otherwise
+		// GetUserByField returns (nil, nil) and a nil err.Error() would panic.
 		final, err := repository.GetDB().GetUserByField(ctx, "id", user.ID)
-		if err != nil || final == nil || final.InviteCode == "" {
+		if err != nil {
 			response.JSONError(c, http.StatusInternalServerError, errs.ErrUpdateInfo, "failed to load invite code: "+err.Error())
 			return
 		}
-		user = final
+		if final != nil && final.InviteCode != "" {
+			user = final
+		} else {
+			// Row missing or still empty: persist the code we generated so the
+			// claim is not lost (create branch seeds the row, update branch
+			// writes the non-zero invite_code).
+			user.InviteCode = inviteCode
+			if err := repository.GetDB().Upsert(ctx, user, "id", user.ID); err != nil {
+				response.JSONError(c, http.StatusInternalServerError, errs.ErrUpdateInfo, "failed to persist invite code: "+err.Error())
+				return
+			}
+		}
 	}
 
 	// Return user invite code information
