@@ -265,8 +265,11 @@ func GetUserByOauth(ctx context.Context, typ, code string, parm *ParameterCarrie
 
 // fetchUserByIdentityChain runs the cs-user login chain (verify →
 // get-or-create → auth-identities) and assembles the local AuthUser identity
-// fields. isNewUser comes from get-or-create and gates inviter-code binding.
-// Any RPC failure fails the login (decision 2: fail-closed).
+// fields. isNewUser gates inviter-code binding. It is authoritative on the
+// verify response (cs-user's auto-create provisions the row during verify, so
+// get-or-create then reports is_new_user=false); get-or-create's flag is kept
+// as a fallback for cs-user versions that predate the wire field. Any RPC
+// failure fails the login (decision 2: fail-closed).
 func fetchUserByIdentityChain(ctx context.Context, accessToken string) (*repository.AuthUser, bool, error) {
 	client := usercenter.GetClient()
 	if client == nil {
@@ -280,7 +283,7 @@ func fetchUserByIdentityChain(ctx context.Context, accessToken string) (*reposit
 	if err != nil || universalID == uuid.Nil {
 		return nil, false, fmt.Errorf("%w: invalid universal_id from verify: %q", usercenter.ErrInvalidIdentity, result.UniversalID)
 	}
-	csUser, isNewUser, err := client.GetOrCreate(ctx, &usercenter.Claims{
+	csUser, gocIsNewUser, err := client.GetOrCreate(ctx, &usercenter.Claims{
 		Sub:         result.Subject,
 		UniversalID: result.UniversalID,
 		Name:        result.Name,
@@ -290,6 +293,9 @@ func fetchUserByIdentityChain(ctx context.Context, accessToken string) (*reposit
 	if err != nil {
 		return nil, false, err
 	}
+	// OR the two flags: verify is the primary signal, get-or-create the
+	// fallback when the cs-user deployment predates is_new_user on the wire.
+	isNewUser := result.IsNewUser || gocIsNewUser
 
 	now := time.Now()
 	user := &repository.AuthUser{

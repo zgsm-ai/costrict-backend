@@ -19,10 +19,13 @@ import (
 // binary (usercenter.InitClient is sync.Once-guarded, so every test shares one
 // client URL). Behavior is driven by the token the client sends:
 //
-//	"bad-jwt"  → verify 401
-//	"no-uuid"  → verify active=true without universal_id
-//	"nogithub" → get-or-create returns subject-nogithub, no github identity row
-//	otherwise  → full success path
+//	"bad-jwt"   → verify 401
+//	"no-uuid"   → verify active=true without universal_id
+//	"nogithub"  → get-or-create returns subject-nogithub, no github identity row
+//	"verify-new" → verify reports is_new_user=true but get-or-create returns
+//	                is_new_user=false (the auto-create provisioning case)
+//	"goc-new"   → verify omits is_new_user, get-or-create reports true (fallback)
+//	otherwise   → full success path (get-or-create reports is_new_user=true)
 func chainStub() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -53,6 +56,21 @@ func chainStub() *httptest.Server {
 					"name":         "Profile Fail", "email": "pf@example.com",
 				})
 				return
+			case "verify-new":
+				jsonRespond(w, http.StatusOK, map[string]any{
+					"active": true, "sub": "sub-vnew",
+					"universal_id": "44444444-4444-4444-4444-444444444444",
+					"name":         "Via Verify", "email": "vv@example.com",
+					"is_new_user": true,
+				})
+				return
+			case "goc-new":
+				jsonRespond(w, http.StatusOK, map[string]any{
+					"active": true, "sub": "sub-gocnew",
+					"universal_id": "55555555-5555-5555-5555-555555555555",
+					"name":         "Via GOC", "email": "goc@example.com",
+				})
+				return
 			}
 			jsonRespond(w, http.StatusOK, map[string]any{
 				"active": true, "sub": "sub-1",
@@ -63,14 +81,22 @@ func chainStub() *httptest.Server {
 			var req usercenter.Claims
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			subjectID := "subject-1"
-			if req.UniversalID == "22222222-2222-2222-2222-222222222222" {
+			isNew := true
+			switch req.UniversalID {
+			case "22222222-2222-2222-2222-222222222222":
 				subjectID = "subject-nogithub"
-			} else if req.UniversalID == "33333333-3333-3333-3333-333333333333" {
+			case "33333333-3333-3333-3333-333333333333":
 				subjectID = "subject-fail"
+			case "44444444-4444-4444-4444-444444444444":
+				// verify already auto-provisioned the row → get-or-create reports false.
+				subjectID = "subject-vnew"
+				isNew = false
+			case "55555555-5555-5555-5555-555555555555":
+				subjectID = "subject-gocnew"
 			}
 			jsonRespond(w, http.StatusOK, map[string]any{
 				"user":        map[string]any{"subject_id": subjectID, "username": "zs"},
-				"is_new_user": true,
+				"is_new_user": isNew,
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-1/profile":
 			jsonRespond(w, http.StatusOK, map[string]any{
@@ -80,6 +106,10 @@ func chainStub() *httptest.Server {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-fail/profile":
 			jsonRespond(w, http.StatusInternalServerError, map[string]any{"error": "profile unavailable"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-nogithub/auth-identities":
+			jsonRespond(w, http.StatusOK, map[string]any{"identities": []any{}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-vnew/auth-identities":
+			jsonRespond(w, http.StatusOK, map[string]any{"identities": []any{}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-gocnew/auth-identities":
 			jsonRespond(w, http.StatusOK, map[string]any{"identities": []any{}})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/internal/users/subject-fail/auth-identities":
 			jsonRespond(w, http.StatusOK, map[string]any{
@@ -148,6 +178,34 @@ func TestFetchUserByIdentityChain_NoGithubRow(t *testing.T) {
 	}
 	if user.SubjectID != "subject-nogithub" {
 		t.Errorf("SubjectID = %q, want subject-nogithub", user.SubjectID)
+	}
+}
+
+func TestFetchUserByIdentityChain_IsNewFromVerify(t *testing.T) {
+	// Regression pin (decision 9 修订): cs-user's verify auto-create provisions
+	// the row inline, so the follow-up get-or-create reports is_new_user=false.
+	// The verify response must be the authoritative first-login signal.
+	user, isNew, err := fetchUserByIdentityChain(context.Background(), "verify-new")
+	if err != nil {
+		t.Fatalf("fetchUserByIdentityChain: %v", err)
+	}
+	if !isNew {
+		t.Error("isNewUser = false, want true (verify reported is_new_user=true)")
+	}
+	if user.SubjectID != "subject-vnew" {
+		t.Errorf("SubjectID = %q, want subject-vnew", user.SubjectID)
+	}
+}
+
+func TestFetchUserByIdentityChain_IsNewFallbackToGetOrCreate(t *testing.T) {
+	// Backward-compat: cs-user deployments that predate is_new_user on the
+	// verify wire still signal first login via get-or-create.
+	_, isNew, err := fetchUserByIdentityChain(context.Background(), "goc-new")
+	if err != nil {
+		t.Fatalf("fetchUserByIdentityChain: %v", err)
+	}
+	if !isNew {
+		t.Error("isNewUser = false, want true (get-or-create fallback)")
 	}
 }
 

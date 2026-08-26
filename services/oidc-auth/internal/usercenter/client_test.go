@@ -65,7 +65,7 @@ func TestVerify_Success(t *testing.T) {
 			"active": true, "token_source": "casdoor", "sub": "sub-1",
 			"universal_id": "universal-123", "name": "Zhang San",
 			"email": "zs@example.com", "phone": "+8613800000000", "iss": "casdoor.example.com",
-			"reissued_token": "eyJ-reissued",
+			"reissued_token": "eyJ-reissued", "is_new_user": true,
 		})
 	})
 	defer s.close()
@@ -82,6 +82,9 @@ func TestVerify_Success(t *testing.T) {
 	}
 	if result.ReissuedToken != "eyJ-reissued" {
 		t.Errorf("ReissuedToken = %q, want passthrough eyJ-reissued", result.ReissuedToken)
+	}
+	if !result.IsNewUser {
+		t.Error("IsNewUser = false, want true (verify reports inline provisioning)")
 	}
 	if got := s.headers().Get("X-Internal-Token"); got != "test-internal-token" {
 		t.Errorf("X-Internal-Token = %q, want test-internal-token", got)

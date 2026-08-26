@@ -49,6 +49,12 @@ func (e *HTTPError) Error() string {
 // users. oidc-auth deliberately does not persist it: the login flow re-mints
 // the token right after verification (generateTokenPair / the refresh path),
 // so the stored device token is always a fresh token anyway.
+//
+// IsNewUser reports whether cs-user provisioned the user row inline during
+// this verify call (its auto-create path, enabled via
+// CS_USER_VERIFY_AUTOCREATE_UNKNOWN_USERS). It is the authoritative first-login
+// signal: when true, the caller gates onboarding flows like inviter-code
+// binding. Only ever true on the Casdoor fallback path; false otherwise.
 type VerifyResponse struct {
 	Active            bool      `json:"active"`
 	TokenSource       string    `json:"token_source,omitempty"` // deprecated: use Issuer
@@ -63,6 +69,7 @@ type VerifyResponse struct {
 	ExpiresAt         time.Time `json:"exp,omitempty"`
 	IssuedAt          time.Time `json:"iat,omitempty"`
 	Issuer            string    `json:"iss,omitempty"`
+	IsNewUser         bool      `json:"is_new_user,omitempty"`
 	ReissuedToken     string    `json:"reissued_token,omitempty"`
 	ReissuedExpiresAt time.Time `json:"reissued_expires_at,omitempty"`
 }
