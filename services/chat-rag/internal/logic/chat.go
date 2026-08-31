@@ -37,10 +37,13 @@ type ChatCompletionLogic struct {
 	identity        *model.Identity
 	responseHandler *ResponseHandler
 	toolExecutor    functions.ToolExecutor
-	usage           *types.Usage
-	orderedModels   []string
-	streamCommitted bool
-	originalModel   string
+	// effectivePromptMode 是用于路由的生效模式：未显式设置且携带续写标记
+	// 的请求升级为 Raw（见 resolveEffectivePromptMode）。请求结构不被改写。
+	effectivePromptMode types.PromptMode
+	usage               *types.Usage
+	orderedModels       []string
+	streamCommitted     bool
+	originalModel       string
 
 	degradationTrace     []model.DegradationEvent
 	degradationTraceSeq  int
@@ -101,10 +104,17 @@ func (l *ChatCompletionLogic) processRequest() (*model.ChatLog, *ds.ProcessedPro
 	// Initialize chat log
 	chatLog := l.newChatLog(startTime)
 
+	// 续写标记请求升级为 Raw 直通：默认链会重建消息（丢末尾 assistant
+	// prefill、注入网关 system），破坏 token 级续写
+	l.effectivePromptMode = resolveEffectivePromptMode(l.request)
+	if l.effectivePromptMode == types.Raw && l.request.ExtraBody.PromptMode != types.Raw {
+		logger.InfoC(l.ctx, "prefill continuation marker detected, upgrading prompt_mode to raw")
+	}
+
 	promptArranger := promptflow.NewPromptProcessor(
 		l.ctx,
 		l.svcCtx,
-		l.request.ExtraBody.PromptMode,
+		l.effectivePromptMode,
 		l.headers,
 		l.identity,
 		l.request.Model,
@@ -607,11 +617,11 @@ func (l *ChatCompletionLogic) handleStreamingWithTools(
 	logger.InfoC(ctx, "starting to handle streaming with tools",
 		zap.Int("remainingDepth", remainingDepth),
 		zap.Int("MaxToolCallDepth", MaxToolCallDepth),
-		zap.String("promptMode", string(l.request.ExtraBody.PromptMode)),
+		zap.String("promptMode", string(l.effectivePromptMode)),
 	)
 
 	// If raw mode, directly pass through results to client
-	if l.request.ExtraBody.PromptMode == types.Raw {
+	if l.effectivePromptMode == types.Raw {
 		return l.handleRawModeStream(ctx, llmClient, flusher, chatLog, idleTracker)
 	}
 
