@@ -49,6 +49,12 @@ tokenCounter:
   # false: skip local token counting and return 0 immediately
   enabled: false
 
+# Prompt processing configuration
+promptProcessing:
+  # false: preserve system messages exactly as received (default)
+  # true: allow rules, tools, filters, and language settings to rewrite system messages
+  modifySystemPrompt: false
+
 LLMTimeout:
   # Regular mode timeout configuration (普通模式超时配置)
   # 单次连续空闲阈值（毫秒），默认 180000ms (180s)

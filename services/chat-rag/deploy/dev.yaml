@@ -15,6 +15,10 @@ data:
     # Token processing configuration
     TokenThreshold: 32_000
 
+    # Preserve system messages by default
+    promptProcessing:
+      modifySystemPrompt: false
+
     # Semantic API configuration
     SemanticApiEndpoint: "http://codebase-indexer-svc.shenma:8888/codebase-indexer/api/v1/search/semantic"
     TopK: 5
@@ -1012,4 +1016,3 @@ spec:
       nodePort: 39001
       targetPort: 8888
   type: NodePort
-

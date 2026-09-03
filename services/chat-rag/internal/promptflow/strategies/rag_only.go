@@ -38,7 +38,10 @@ func NewRagOnlyProcessor(
 
 // Arrange processes the prompt with RAG compression
 func (p *RagOnlyProcessor) Arrange(messages []types.Message) (*ds.ProcessedPrompt, error) {
-	promptMsg, err := processor.NewPromptMsg(messages)
+	promptMsg, err := processor.NewPromptMsg(
+		messages,
+		p.config.PromptProcessing.ModifySystemPrompt,
+	)
 	if err != nil {
 		return &ds.ProcessedPrompt{
 			Messages: messages,

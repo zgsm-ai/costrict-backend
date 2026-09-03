@@ -91,6 +91,10 @@ LLM:
   # Optional: models that support function-calling
   FuncCallingModels: ["gpt-4o-mini", "o4-mini"]
 
+# System prompt processing (defaults to false and preserves system messages)
+promptProcessing:
+  modifySystemPrompt: false
+
 # LLM Timeout and Retry Configuration (for regular mode)
 LLMTimeout:
   idleTimeoutMs: 180000          # Single idle timeout (ms), default 180000ms (180s)
@@ -240,6 +244,8 @@ router:
 - **LLM**
   - `Endpoint`: Single Chat Completions endpoint. Final model is carried by request body `model`.
   - `FuncCallingModels`: Models supporting function-calling to enable tools.
+- **promptProcessing**
+  - `modifySystemPrompt`: Allows rules, tools, filters, and language settings to rewrite system messages; defaults to `false`.
 - **LLMTimeout** (for regular mode - when NOT using router or model != "auto")
   - `idleTimeoutMs`: Timeout for single idle period (ms). Default 180000ms (180s).
   - `totalIdleTimeoutMs`: Total idle timeout budget across all retries (ms). Default 180000ms (180s).

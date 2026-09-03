@@ -98,6 +98,12 @@ func (s *SystemCompressor) Execute(promptMsg *PromptMsg) {
 		s.Err = fmt.Errorf("nil prompt message received")
 		return
 	}
+	if !promptMsg.CanModifySystemPrompt() {
+		if s.next != nil {
+			s.next.Execute(promptMsg)
+		}
+		return
+	}
 
 	processedMsg := s.processSystemMessageWithCache(promptMsg.systemMsg)
 	promptMsg.systemMsg = processedMsg

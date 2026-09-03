@@ -45,6 +45,11 @@ type TokenCounterConfig struct {
 	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
 }
 
+// PromptProcessingConfig controls whether prompt processors may rewrite system messages.
+type PromptProcessingConfig struct {
+	ModifySystemPrompt bool `mapstructure:"modifySystemPrompt" yaml:"modifySystemPrompt"`
+}
+
 // RedisConfig holds Redis configuration
 type RedisConfig struct {
 	Addr     string
@@ -210,6 +215,10 @@ type Config struct {
 
 	// TokenCounter controls local token counting for metrics/logging.
 	TokenCounter *TokenCounterConfig `mapstructure:"tokenCounter" yaml:"tokenCounter"`
+
+	// PromptProcessing controls mutations applied to system messages.
+	// ModifySystemPrompt defaults to false when omitted.
+	PromptProcessing PromptProcessingConfig `mapstructure:"promptProcessing" yaml:"promptProcessing"`
 
 	// LLMTimeout holds idle timeout configuration
 	LLMTimeout LLMTimeoutConfig `mapstructure:"llmTimeout" yaml:"llmTimeout"`

@@ -91,6 +91,10 @@ LLM:
   # 可选：支持函数调用的模型清单
   FuncCallingModels: ["gpt-4o-mini", "o4-mini"]
 
+# 系统提示词处理（默认 false，保持请求中的 system 消息不变）
+promptProcessing:
+  modifySystemPrompt: false
+
 # LLM 超时和重试配置（普通模式）
 LLMTimeout:
   idleTimeoutMs: 180000          # 单次空闲超时（毫秒），默认 180000ms (180s)
@@ -240,6 +244,8 @@ router:
 - **LLM**
   - `Endpoint`：统一的 Chat Completions 端点；最终模型名通过请求体 `model` 传递
   - `FuncCallingModels`：具备函数调用能力的模型清单，便于按需启用工具
+- **promptProcessing**
+  - `modifySystemPrompt`：是否允许规则、工具、过滤器和语言设置改写 system 消息；默认为 `false`
 - **LLMTimeout**（普通模式 - 不使用路由或 model != "auto" 时）
   - `idleTimeoutMs`：单次空闲超时（毫秒），默认 180000ms (180s)
   - `totalIdleTimeoutMs`：总空闲超时预算（毫秒），默认 180000ms (180s)

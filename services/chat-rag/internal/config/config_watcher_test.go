@@ -111,6 +111,30 @@ chatMetrics:
 	}
 }
 
+func TestLoadYAMLPromptProcessing(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "chat-api.yaml")
+	content := []byte(`
+promptProcessing:
+  modifySystemPrompt: true
+`)
+	if err := os.WriteFile(configPath, content, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadYAML[Config](configPath)
+	if err != nil {
+		t.Fatalf("LoadYAML() error = %v", err)
+	}
+	if !cfg.PromptProcessing.ModifySystemPrompt {
+		t.Fatal("ModifySystemPrompt = false, want true")
+	}
+
+	var defaultConfig Config
+	if defaultConfig.PromptProcessing.ModifySystemPrompt {
+		t.Fatal("ModifySystemPrompt default = true, want false")
+	}
+}
+
 func TestUnmarshalYAMLContent(t *testing.T) {
 	yamlContent := `
 enabled: true

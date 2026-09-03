@@ -11,10 +11,11 @@ import (
 )
 
 type PromptMsg struct {
-	systemMsg        *types.Message
-	olderUserMsgList []types.Message
-	lastUserMsg      *types.Message
-	tools            []types.Function
+	systemMsg          *types.Message
+	olderUserMsgList   []types.Message
+	lastUserMsg        *types.Message
+	tools              []types.Function
+	modifySystemPrompt bool
 }
 
 type Recorder struct {
@@ -23,7 +24,7 @@ type Recorder struct {
 	Handled bool
 }
 
-func NewPromptMsg(messages []types.Message) (*PromptMsg, error) {
+func NewPromptMsg(messages []types.Message, modifySystemPrompt bool) (*PromptMsg, error) {
 	messagesCopy := make([]types.Message, len(messages))
 	copy(messagesCopy, messages)
 
@@ -35,9 +36,10 @@ func NewPromptMsg(messages []types.Message) (*PromptMsg, error) {
 
 	olderUserMsg := utils.GetOldUserMsgsWithNum(messagesCopy, 1)
 	return &PromptMsg{
-		systemMsg:        &systemMsg,
-		olderUserMsgList: olderUserMsg,
-		lastUserMsg:      &lastUserMsg,
+		systemMsg:          &systemMsg,
+		olderUserMsgList:   olderUserMsg,
+		lastUserMsg:        &lastUserMsg,
+		modifySystemPrompt: modifySystemPrompt,
 	}, nil
 }
 
@@ -46,6 +48,10 @@ func (p *PromptMsg) GetTools() []types.Function {
 }
 
 func (p *PromptMsg) UpdateSystemMsg(content string) {
+	if !p.modifySystemPrompt {
+		return
+	}
+
 	p.systemMsg = &types.Message{
 		Role: types.RoleSystem,
 		Content: []model.Content{
@@ -58,6 +64,10 @@ func (p *PromptMsg) UpdateSystemMsg(content string) {
 			},
 		},
 	}
+}
+
+func (p *PromptMsg) CanModifySystemPrompt() bool {
+	return p.modifySystemPrompt
 }
 
 func (p *PromptMsg) AssemblePrompt() []types.Message {
@@ -110,6 +120,10 @@ func (e *End) SetNext(processor Processor) {
 }
 
 func SetLanguage(language string, promptMsg *PromptMsg) {
+	if promptMsg == nil || !promptMsg.CanModifySystemPrompt() {
+		return
+	}
+
 	if language == "" || language == "*" {
 		logger.Warn("language is empty, skipping language setting")
 		return
